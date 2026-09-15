@@ -33,7 +33,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 1. INSUMOS Y PRECIOS INICIALES EN SESSION_STATE (Permite edición)
+# 1. INSUMOS Y PRECIOS INICIALES EN SESSION_STATE
 if "INSUMOS" not in st.session_state:
     st.session_state.INSUMOS = {
         "Harina Leudante (kg)": 1700.0, "Manteca (kg)": 19500.0, "Azúcar (kg)": 1400.0,
@@ -137,7 +137,7 @@ if opcion_menu == "📊 Cargar Venta Diaria":
 
     ganancia_limpia = precio_cobrado - costo_total_venta
 
-    st.info(f"💡 **Costo estimado de insumos para esta venta:** ${costo_total_venta:,.2f} | **Ganancia Limpia:** ${ganancia_limpia:,.2f}")
+    st.info(f"💡 **Costo estimado de insumos:** ${costo_total_venta:,.2f} | **Ganancia Limpia:** ${ganancia_limpia:,.2f}")
 
     if st.button("💾 Guardar Venta en la Nube"):
         try:
@@ -152,8 +152,35 @@ if opcion_menu == "📊 Cargar Venta Diaria":
             }
             supabase.table("ventas").insert(registro).execute()
             st.success("¡Venta registrada con éxito y guardada en la nube!")
+            st.rerun()
         except Exception as err:
             st.error(f"Error al guardar la venta: {err}")
+
+    st.markdown("---")
+    st.subheader("📋 Historial de Ventas Registradas")
+
+    try:
+        respuesta = supabase.table("ventas").select("*").order("created_at", desc=True).execute()
+        datos_ventas = respuesta.data
+    except Exception as err:
+        datos_ventas = []
+
+    if datos_ventas:
+        df_ventas = pd.DataFrame(datos_ventas)
+        
+        # Muestra una tabla con opción de borrar
+        for idx, row in df_ventas.iterrows():
+            col_info, col_btn = st.columns([5, 1])
+            with col_info:
+                st.write(f"📅 **{row.get('fecha')}** | **{row.get('producto')}** ({row.get('tipo_venta')}) x{row.get('cantidad')} — Total Cobrado: **${row.get('monto_total'):,.2f}** | Ganancia: **${row.get('ganancia_limpia'):,.2f}**")
+            with col_btn:
+                if st.button("🗑️ Borrar", key=f"del_{row.get('id')}"):
+                    supabase.table("ventas").delete().eq("id", row.get("id")).execute()
+                    st.success("Venta eliminada correctamente.")
+                    st.rerun()
+            st.divider()
+    else:
+        st.write("Aún no hay ventas registradas.")
 
 elif opcion_menu == "📈 Métricas y Gráficos":
     st.header("📈 Desempeño del Negocio")
@@ -162,7 +189,7 @@ elif opcion_menu == "📈 Métricas y Gráficos":
         respuesta = supabase.table("ventas").select("*").execute()
         datos_ventas = respuesta.data
     except Exception as err:
-        st.error(f"No se pudieron cargar los datos de Supabase. Verificá los permisos o los Secrets. Detalle: {err}")
+        st.error(f"No se pudieron cargar los datos de Supabase: {err}")
         datos_ventas = []
 
     if datos_ventas:

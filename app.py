@@ -23,13 +23,53 @@ try:
 except Exception as e:
     st.error("Error al conectar con la base de datos. Verificá los Secrets de Streamlit.")
 
-# Estilo visual
+# Estilo visual personalizado
 st.markdown("""
     <style>
-    .main { background-color: #f4f9f9; }
-    h1, h2, h3 { color: #5c9ead !important; font-family: 'Helvetica Neue', sans-serif; }
-    .stButton>button { background-color: #a8dadc; color: #1d3557; border-radius: 10px; border: none; font-weight: bold; }
-    .stButton>button:hover { background-color: #457b9d; color: white; }
+    .main { background-color: #f8f9fa; }
+    h1, h2, h3 { color: #2c3e50 !important; font-family: 'Segoe UI', sans-serif; }
+    
+    /* Botón general */
+    .stButton>button { 
+        background-color: #5c9ead; 
+        color: white; 
+        border-radius: 8px; 
+        border: none; 
+        font-weight: 600;
+        padding: 0.5rem 1rem;
+    }
+    .stButton>button:hover { 
+        background-color: #3b6e7a; 
+        color: white; 
+    }
+
+    /* Targeta resumen de venta personalizada */
+    .card-resumen {
+        background-color: #ffffff;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        border-left: 6px solid #5c9ead;
+        margin-top: 15px;
+        margin-bottom: 20px;
+    }
+    .card-title {
+        font-size: 14px;
+        color: #7f8c8d;
+        font-weight: bold;
+        text-transform: uppercase;
+        margin-bottom: 5px;
+    }
+    .card-value-costo {
+        font-size: 24px;
+        font-weight: bold;
+        color: #e74c3c;
+    }
+    .card-value-ganancia {
+        font-size: 24px;
+        font-weight: bold;
+        color: #27ae60;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -137,9 +177,24 @@ if opcion_menu == "📊 Cargar Venta Diaria":
 
     ganancia_limpia = precio_cobrado - costo_total_venta
 
-    st.info(f"💡 **Costo estimado de insumos:** ${costo_total_venta:,.2f} | **Ganancia Limpia:** ${ganancia_limpia:,.2f}")
+    # --- NUEVO DISEÑO VISUAL PARA EL RESUMEN DE MARGEN ---
+    st.markdown(f"""
+        <div class="card-resumen">
+            <div style="display: flex; justify-content: space-around; text-align: center;">
+                <div>
+                    <div class="card-title">📦 Costo Estimado Insumos</div>
+                    <div class="card-value-costo">${costo_total_venta:,.2f}</div>
+                </div>
+                <div style="border-left: 1px solid #e0e0e0; height: 50px;"></div>
+                <div>
+                    <div class="card-title">💵 Ganancia Limpia Estimada</div>
+                    <div class="card-value-ganancia">${ganancia_limpia:,.2f}</div>
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
 
-    if st.button("💾 Guardar Venta en la Nube"):
+    if st.button("💾 Guardar Venta en la Nube", use_container_width=True):
         try:
             registro = {
                 "fecha": str(fecha_venta),
@@ -151,7 +206,7 @@ if opcion_menu == "📊 Cargar Venta Diaria":
                 "ganancia_limpia": float(ganancia_limpia)
             }
             supabase.table("ventas").insert(registro).execute()
-            st.success("¡Venta registrada con éxito y guardada en la nube!")
+            st.success("¡Venta registrada con éxito!")
             st.rerun()
         except Exception as err:
             st.error(f"Error al guardar la venta: {err}")
@@ -159,28 +214,30 @@ if opcion_menu == "📊 Cargar Venta Diaria":
     st.markdown("---")
     st.subheader("📋 Historial de Ventas Registradas")
 
+    # Búsqueda universal sin depender exclusivamente de created_at
     try:
-        respuesta = supabase.table("ventas").select("*").order("created_at", desc=True).execute()
+        respuesta = supabase.table("ventas").select("*").execute()
         datos_ventas = respuesta.data
     except Exception as err:
         datos_ventas = []
 
     if datos_ventas:
+        # Ordenamos localmente por fecha (de más reciente a más vieja)
         df_ventas = pd.DataFrame(datos_ventas)
+        df_ventas = df_ventas.sort_values(by="fecha", ascending=False)
         
-        # Muestra una tabla con opción de borrar
         for idx, row in df_ventas.iterrows():
             col_info, col_btn = st.columns([5, 1])
             with col_info:
-                st.write(f"📅 **{row.get('fecha')}** | **{row.get('producto')}** ({row.get('tipo_venta')}) x{row.get('cantidad')} — Total Cobrado: **${row.get('monto_total'):,.2f}** | Ganancia: **${row.get('ganancia_limpia'):,.2f}**")
+                st.write(f"📅 **{row.get('fecha')}** | **{row.get('producto')}** ({row.get('tipo_venta')}) x{row.get('cantidad')} — Total: **${row.get('monto_total'):,.2f}** | Ganancia: **${row.get('ganancia_limpia'):,.2f}**")
             with col_btn:
                 if st.button("🗑️ Borrar", key=f"del_{row.get('id')}"):
                     supabase.table("ventas").delete().eq("id", row.get("id")).execute()
-                    st.success("Venta eliminada correctamente.")
+                    st.success("Venta eliminada.")
                     st.rerun()
             st.divider()
     else:
-        st.write("Aún no hay ventas registradas.")
+        st.info("Aún no hay ventas registradas en el historial.")
 
 elif opcion_menu == "📈 Métricas y Gráficos":
     st.header("📈 Desempeño del Negocio")

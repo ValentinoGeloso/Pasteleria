@@ -151,6 +151,14 @@ def calcular_costo_receta(nombre_receta):
     costo_unitario = costo_lote / receta["rinde"]
     return costo_lote, costo_unitario
 
+# Cartel emergente de confirmación al guardar producto
+@st.dialog("✅ Producto Guardado Exitosamente")
+def modal_producto_guardado(nombre):
+    st.success(f"¡El producto **'{nombre}'** se ha guardado correctamente en la base de datos de la nube!")
+    st.write("Ya podés utilizarlo en la carga de ventas y calculadoras.")
+    if st.button("Entendido", use_container_width=True):
+        st.rerun()
+
 # Estilo visual adaptado al modo oscuro
 st.markdown("""
     <style>
@@ -470,35 +478,42 @@ elif opcion_menu == "🏷️ Modificar y Crear Productos":
             elif not dict_ingredientes_nuevo:
                 st.warning("Por favor, elegí al menos un ingrediente para la receta.")
             else:
-                dict_precios = {}
-                if p_enteros > 0: dict_precios["Entero"] = float(p_enteros)
-                if p_porcion > 0: 
-                    label_p = "1 Unidad" if tipo_rinde == "unidades" else "Porción"
-                    dict_precios[label_p] = float(p_porcion)
-                if p_media_docena > 0: dict_precios["Media Docena (6u)"] = float(p_media_docena)
-                if p_docena > 0: dict_precios["Docena (12u)"] = float(p_docena)
+                try:
+                    dict_precios = {}
+                    if p_enteros > 0: dict_precios["Entero"] = float(p_enteros)
+                    if p_porcion > 0: 
+                        label_p = "1 Unidad" if tipo_rinde == "unidades" else "Porción"
+                        dict_precios[label_p] = float(p_porcion)
+                    if p_media_docena > 0: dict_precios["Media Docena (6u)"] = float(p_media_docena)
+                    if p_docena > 0: dict_precios["Docena (12u)"] = float(p_docena)
 
-                if not dict_precios: dict_precios["Entero"] = 0.0
+                    if not dict_precios: dict_precios["Entero"] = 0.0
 
-                nuevo_registro = {
-                    "nombre": nuevo_nombre_prod.strip(),
-                    "rinde": int(rinde_prod),
-                    "tipo": tipo_rinde,
-                    "precios": dict_precios,
-                    "ingredientes": dict_ingredientes_nuevo
-                }
-                
-                # Guardar en Supabase
-                supabase.table("productos").insert(nuevo_registro).execute()
-                st.session_state.RECETAS[nuevo_nombre_prod.strip()] = {
-                    "rinde": int(rinde_prod),
-                    "tipo": tipo_rinde,
-                    "precios": dict_precios,
-                    "ingredientes": dict_ingredientes_nuevo
-                }
+                    nombre_limpio = nuevo_nombre_prod.strip()
 
-                st.success(f"🎉 ¡El producto **'{nuevo_nombre_prod}'** fue creado y guardado permanentemente en la nube!")
-                st.rerun()
+                    nuevo_registro = {
+                        "nombre": nombre_limpio,
+                        "rinde": int(rinde_prod),
+                        "tipo": tipo_rinde,
+                        "precios": dict_precios,
+                        "ingredientes": dict_ingredientes_nuevo
+                    }
+                    
+                    # Guardar en Supabase
+                    supabase.table("productos").insert(nuevo_registro).execute()
+                    
+                    # Actualizar memoria local
+                    st.session_state.RECETAS[nombre_limpio] = {
+                        "rinde": int(rinde_prod),
+                        "tipo": tipo_rinde,
+                        "precios": dict_precios,
+                        "ingredientes": dict_ingredientes_nuevo
+                    }
+
+                    # Abrir el cartel emergente modal con la confirmación
+                    modal_producto_guardado(nombre_limpio)
+                except Exception as err:
+                    st.error(f"Error al guardar el producto en la nube: {err}")
 
     with sub_tab3:
         st.subheader("🗑️ Eliminar Producto")
@@ -617,3 +632,4 @@ elif opcion_menu == "⚙️ Calculadora y Costo de Insumos":
                 "Costo en la receta ($)": f"${costo_total_ing:,.2f}"
             })
         st.table(pd.DataFrame(desglose))
+            

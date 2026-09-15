@@ -6,9 +6,10 @@ from supabase import create_client, Client
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Dulce Mar - Sistema Integral", 
+    page_title="Dulce Mar - App Pos", 
     page_icon="🧁",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
 # Conexión con Supabase
@@ -21,9 +22,9 @@ def init_supabase():
 try:
     supabase = init_supabase()
 except Exception as e:
-    st.error("Error al conectar con la base de datos. Verificá los Secrets de Streamlit.")
+    st.error("Error al conectar con Supabase. Verificá los Secrets de Streamlit.")
 
-# --- DATOS POR DEFECTO PARA PRIMERA CARGA EN SUPABASE ---
+# --- DATOS POR DEFECTO PARA PRIMERA CARGA ---
 INSUMOS_DEFAULT = {
     "Harina Leudante (kg)": 1700.0, "Manteca (kg)": 19500.0, "Azúcar (kg)": 1400.0,
     "Dulce de Leche (kg)": 7000.0, "Huevo (unidad)": 150.0, "Aceite (litro)": 4000.0,
@@ -94,25 +95,22 @@ RECETAS_DEFAULT = {
     }
 }
 
-# --- FUNCIONES DE LECTURA Y ESCRITURA CON SUPABASE ---
+# --- FUNCIONES SUPABASE ---
 def obtener_insumos():
     try:
         res = supabase.table("insumos").select("*").execute()
         if not res.data:
-            # Si está vacía, cargamos los iniciales
             datos_insertar = [{"nombre": k, "precio": float(v)} for k, v in INSUMOS_DEFAULT.items()]
             supabase.table("insumos").insert(datos_insertar).execute()
             return {k: float(v) for k, v in INSUMOS_DEFAULT.items()}
         return {item["nombre"]: float(item["precio"]) for item in res.data}
     except Exception as e:
-        st.error(f"Error al obtener insumos: {e}")
         return INSUMOS_DEFAULT
 
 def obtener_recetas():
     try:
         res = supabase.table("productos").select("*").execute()
         if not res.data:
-            # Si está vacía, cargamos las iniciales
             datos_insertar = []
             for k, v in RECETAS_DEFAULT.items():
                 datos_insertar.append({
@@ -135,10 +133,8 @@ def obtener_recetas():
             }
         return recetas_dict
     except Exception as e:
-        st.error(f"Error al obtener productos: {e}")
         return RECETAS_DEFAULT
 
-# Cargamos datos desde Supabase a session_state
 if "INSUMOS" not in st.session_state:
     st.session_state.INSUMOS = obtener_insumos()
 
@@ -151,177 +147,341 @@ def calcular_costo_receta(nombre_receta):
     costo_unitario = costo_lote / receta["rinde"]
     return costo_lote, costo_unitario
 
-# Cartel emergente de confirmación al guardar producto
-@st.dialog("✅ Producto Guardado Exitosamente")
-def modal_producto_guardado(nombre):
-    st.success(f"¡El producto **'{nombre}'** se ha guardado correctamente en la base de datos de la nube!")
-    st.write("Ya podés utilizarlo en la carga de ventas y calculadoras.")
-    if st.button("Entendido", use_container_width=True):
+@st.dialog("✅ ¡Venta Guardada con Éxito!")
+def modal_venta_exitosa(detalle, total, ganancia):
+    st.balloons()
+    st.markdown(f"### 🧁 Dulce Mar")
+    st.write(f"**Detalle:** {detalle}")
+    st.write(f"**Monto Cobrado:** ${total:,.2f}")
+    st.write(f"**Ganancia Limpia:** ${ganancia:,.2f}")
+    if st.button("Continuar Vendiendo 🛒", use_container_width=True):
         st.rerun()
 
-# Estilo visual adaptado al modo oscuro
+@st.dialog("✅ Producto Guardado Exitosamente")
+def modal_producto_guardado(nombre):
+    st.success(f"¡El producto **'{nombre}'** se ha guardado correctamente!")
+    if st.button("Entendido 👍", use_container_width=True):
+        st.rerun()
+
+# --- ESTILOS CSS CREATIVOS OPTIMIZADOS PARA CELULAR ---
 st.markdown("""
     <style>
-    h1, h2, h3 { 
-        color: #72b3c2 !important; 
-        font-family: 'Segoe UI', 'Helvetica Neue', sans-serif;
-        font-weight: 700;
+    /* Estilos generales */
+    .stApp {
+        background-color: #12181f;
+        font-family: 'Segoe UI', Roboto, sans-serif;
     }
-    .stButton>button { 
-        background-color: #5c9ead; 
-        color: white; 
-        border-radius: 8px; 
-        border: none; 
-        font-weight: 600;
-        font-size: 16px;
-        padding: 0.6rem 1rem;
-    }
-    .stButton>button:hover { 
-        background-color: #4a8b9a; 
-        color: white; 
-    }
-    .card-resumen {
-        background-color: #1e2d38;
-        border-radius: 12px;
-        padding: 22px;
-        border: 1px solid #3a5366;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-        margin-top: 15px;
+    
+    /* Header Principal Dulce Mar */
+    .brand-header {
+        background: linear-gradient(135deg, #e8a598 0%, #72b3c2 100%);
+        padding: 16px 20px;
+        border-radius: 16px;
+        color: #12181f;
+        text-align: center;
         margin-bottom: 20px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
     }
-    .card-title {
+    .brand-header h1 {
+        margin: 0;
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: 1px;
+        color: #12181f !important;
+    }
+    .brand-header p {
+        margin: 2px 0 0 0;
         font-size: 14px;
-        color: #93c5fd;
+        font-weight: 600;
+        opacity: 0.9;
+    }
+
+    /* Tarjetas de Producto estilo Celular */
+    .product-card {
+        background-color: #1a232e;
+        border-radius: 14px;
+        padding: 14px;
+        border: 1px solid #2d3b4e;
+        margin-bottom: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .product-title {
+        font-size: 18px;
+        font-weight: 700;
+        color: #f3d5b5;
+        margin-bottom: 4px;
+    }
+    .product-price {
+        font-size: 16px;
+        font-weight: 600;
+        color: #72b3c2;
+    }
+
+    /* Resumen interactivo táctil */
+    .cart-box {
+        background: linear-gradient(180deg, #1e2a38 0%, #16202c 100%);
+        border: 2px solid #72b3c2;
+        border-radius: 16px;
+        padding: 18px;
+        margin-top: 15px;
+        box-shadow: 0 4px 20px rgba(114, 179, 194, 0.15);
+    }
+    .cart-title {
+        font-size: 15px;
+        color: #e8a598;
         font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 6px;
+        letter-spacing: 1px;
     }
-    .card-value-costo {
-        font-size: 26px;
+    .val-costo {
+        font-size: 22px;
         font-weight: bold;
         color: #f87171;
     }
-    .card-value-ganancia {
+    .val-ganancia {
         font-size: 26px;
         font-weight: bold;
         color: #4ade80;
     }
-    .venta-item {
-        background-color: #1a232a;
-        padding: 14px 18px;
-        border-radius: 8px;
-        border-left: 4px solid #72b3c2;
-        margin-bottom: 10px;
-        color: #e0f2fe;
-        font-size: 16px;
+
+    /* Ajustes visuales para pestañas */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background-color: #1a232e;
+        border-radius: 10px;
+        color: #a0aec0;
+        padding: 8px 16px;
+        font-weight: 600;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #72b3c2 !important;
+        color: #12181f !important;
+    }
+
+    /* Botones primarios */
+    .stButton>button {
+        border-radius: 12px;
+        font-weight: 700;
+        transition: all 0.2s;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# NAVEGACIÓN
-st.sidebar.title("🧁 Dulce Mar")
-opcion_menu = st.sidebar.radio("Navegación:", [
-    "📊 Cargar Venta Diaria", 
-    "📈 Métricas y Gráficos", 
-    "🏷️ Modificar y Crear Productos",
-    "🛒 Gestor de Precios de Insumos",
-    "⚙️ Calculadora y Costo de Insumos"
+# BANNER SUPERIOR DE LA APP
+st.markdown("""
+    <div class="brand-header">
+        <h1>🧁 DULCE MAR</h1>
+        <p>Sistema Integral de Gestión & Caja Rápida</p>
+    </div>
+""", unsafe_allow_html=True)
+
+# NAVEGACIÓN SUPERIOR POR PESTAÑAS (Ideal para pantallas táctiles)
+tab_pos, tab_clasica, tab_metricas, tab_productos, tab_insumos, tab_calc = st.tabs([
+    "📱 Caja Rápida", 
+    "📊 Venta Tradicional", 
+    "📈 Métricas", 
+    "🏷️ Productos",
+    "🛒 Insumos",
+    "⚙️ Calculadora"
 ])
 
-if opcion_menu == "📊 Cargar Venta Diaria":
-    st.header("🛒 Registrar Nueva Venta")
+# -------------------------------------------------------------------
+# 1. PESTAÑA: CAJA RÁPIDA (OPTIMIZADA PARA CELULAR Y MÓVIL)
+# -------------------------------------------------------------------
+with tab_pos:
+    st.subheader("⚡ Cobro Rápido en Caja")
+    fecha_pos = st.date_input("Fecha de Venta:", datetime.now(), key="pos_date")
     
-    if not st.session_state.RECETAS:
-        st.warning("No hay productos cargados en el sistema.")
-    else:
-        col1, col2 = st.columns(2)
-        with col1:
-            fecha_venta = st.date_input("Fecha:", datetime.now())
-            prod_sel = st.selectbox("Producto:", list(st.session_state.RECETAS.keys()))
-            datos_prod = st.session_state.RECETAS[prod_sel]
-            
-        with col2:
-            tipo_presentacion = st.selectbox("Presentación:", list(datos_prod["precios"].keys()))
-            cantidad = st.number_input("Cantidad vendida:", min_value=1, value=1, step=1)
-            
-            # PROMO CAFÉ + BUDÍN
-            cant_budin_promo = 0
-            budin_sel_promo = None
-            precio_extra_budin = 0.0
-            
-            if "Cafe" in prod_sel:
-                st.markdown("---")
-                agregar_promo = st.checkbox("☕ Promo: ¡Agregar porción de Budín a $750!")
-                if agregar_promo:
-                    col_b1, col_b2 = st.columns(2)
-                    with col_b1:
-                        budines_disponibles = [p for p in st.session_state.RECETAS.keys() if "Budin" in p]
-                        budin_sel_promo = st.selectbox("Gusto del budín:", budines_disponibles)
-                    with col_b2:
-                        cant_budin_promo = st.number_input("Porciones de budín promo:", min_value=1, value=1, step=1)
-                    
-                    precio_extra_budin = cant_budin_promo * 750.0
+    col_izq, col_der = st.columns([1.2, 1])
 
-            precio_base = float(datos_prod["precios"][tipo_presentacion] * cantidad)
-            precio_total_sugerido = precio_base + precio_extra_budin
-            precio_cobrado = st.number_input("Precio Total Cobrado ($):", value=precio_total_sugerido)
+    with col_izq:
+        st.write("👉 **Seleccioná el producto:**")
+        prod_pos = st.selectbox("Buscar Producto:", list(st.session_state.RECETAS.keys()), key="pos_prod_sel")
+        datos_prod = st.session_state.RECETAS[prod_pos]
 
-        # CÁLCULO DE COSTOS
-        costo_lote, costo_u = calcular_costo_receta(prod_sel)
+        st.write("👉 **Seleccioná la presentación:**")
+        pres_pos = st.radio("Presentación disponible:", list(datos_prod["precios"].keys()), horizontal=True, key="pos_pres_radio")
         
-        if "Docena (12u)" in tipo_presentacion:
-            costo_total_venta = costo_u * 12 * cantidad
-        elif "Media Docena (6u)" in tipo_presentacion:
-            costo_total_venta = costo_u * 6 * cantidad
-        elif "Porción" in tipo_presentacion or "1 Unidad" in tipo_presentacion:
-            costo_total_venta = costo_u * cantidad
+        cant_pos = st.number_input("Cantidad a vender:", min_value=1, value=1, step=1, key="pos_cant_num")
+
+        # PROMO CAFÉ INTELIGENTE
+        promo_activa = False
+        cant_budin_promo = 0
+        budin_sel_promo = None
+        precio_extra_budin = 0.0
+
+        if "Cafe" in prod_pos:
+            st.markdown("---")
+            st.markdown("☕ **¡Promoción Disponible!**")
+            promo_activa = st.toggle("Agregar porción de Budín a $750", value=False)
+            if promo_activa:
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    budines_disponibles = [p for p in st.session_state.RECETAS.keys() if "Budin" in p]
+                    budin_sel_promo = st.selectbox("Sabor Budín:", budines_disponibles, key="pos_budin_sel")
+                with col_b2:
+                    cant_budin_promo = st.number_input("Cantidad Budines:", min_value=1, value=1, step=1, key="pos_budin_cant")
+                precio_extra_budin = cant_budin_promo * 750.0
+
+    with col_der:
+        # CÁLCULOS EN TIEMPO REAL
+        precio_base = float(datos_prod["precios"][pres_pos] * cant_pos)
+        precio_total_sugerido = precio_base + precio_extra_budin
+        
+        costo_lote, costo_u = calcular_costo_receta(prod_pos)
+        if "Docena (12u)" in pres_pos:
+            costo_total_venta = costo_u * 12 * cant_pos
+        elif "Media Docena (6u)" in pres_pos:
+            costo_total_venta = costo_u * 6 * cant_pos
+        elif "Porción" in pres_pos or "1 Unidad" in pres_pos:
+            costo_total_venta = costo_u * cant_pos
         else:
-            costo_total_venta = costo_lote * cantidad
+            costo_total_venta = costo_lote * cant_pos
 
         if cant_budin_promo > 0 and budin_sel_promo:
             _, costo_u_budin = calcular_costo_receta(budin_sel_promo)
             costo_total_venta += (costo_u_budin * cant_budin_promo)
 
-        ganancia_limpia = precio_cobrado - costo_total_venta
+        precio_final_cobrado = st.number_input("Monto Cobrado Final ($):", value=precio_total_sugerido, step=100.0, key="pos_monto_final")
+        ganancia_limpia = precio_final_cobrado - costo_total_venta
 
+        # TARGETA DE RESUMEN VISUAL
         st.markdown(f"""
-            <div class="card-resumen">
-                <div style="display: flex; justify-content: space-around; text-align: center; align-items: center;">
+            <div class="cart-box">
+                <div class="cart-title">🛍️ Resumen del Carrito</div>
+                <div style="margin-top: 10px; font-size: 16px;">
+                    <b>{prod_pos}</b><br>
+                    <span style="color: #a0aec0;">{pres_pos} x{cant_pos}</span>
+                </div>
+                {"<div style='color: #e8a598; font-size: 14px; margin-top: 4px;'>+ Promo Budín (" + str(cant_budin_promo) + "x)</div>" if promo_activa else ""}
+                <hr style="border-color: #2d3b4e; margin: 12px 0;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <div class="card-title">📦 COSTO ESTIMADO INSUMOS</div>
-                        <div class="card-value-costo">${costo_total_venta:,.2f}</div>
+                        <div style="font-size: 12px; color: #a0aec0;">COSTO INSUMOS</div>
+                        <div class="val-costo">${costo_total_venta:,.2f}</div>
                     </div>
-                    <div style="border-left: 2px solid #3a5366; height: 45px;"></div>
-                    <div>
-                        <div class="card-title">💵 GANANCIA LIMPIA ESTIMADA</div>
-                        <div class="card-value-ganancia">${ganancia_limpia:,.2f}</div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 12px; color: #a0aec0;">GANANCIA NETO</div>
+                        <div class="val-ganancia">${ganancia_limpia:,.2f}</div>
                     </div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
-
-        if st.button("💾 Guardar Venta en la Nube", use_container_width=True):
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🚀 REGISTRAR VENTA AHORA", use_container_width=True, type="primary"):
             try:
-                presentacion_final = tipo_presentacion
+                presentacion_final = pres_pos
                 if cant_budin_promo > 0 and budin_sel_promo:
                     gusto_corto = budin_sel_promo.replace("Budin de ", "").replace("Budin ", "")
                     presentacion_final += f" + {cant_budin_promo}x Budín {gusto_corto} (Promo $750)"
 
                 registro = {
-                    "fecha": str(fecha_venta),
-                    "producto": prod_sel,
-                    "cantidad": int(cantidad),
+                    "fecha": str(fecha_pos),
+                    "producto": prod_pos,
+                    "cantidad": int(cant_pos),
                     "tipo_venta": presentacion_final,
-                    "monto_total": float(precio_cobrado),
+                    "monto_total": float(precio_final_cobrado),
                     "costo_total": float(costo_total_venta),
                     "ganancia_limpia": float(ganancia_limpia)
                 }
                 supabase.table("ventas").insert(registro).execute()
-                st.success("¡Venta registrada con éxito!")
-                st.rerun()
+                modal_venta_exitosa(f"{prod_pos} ({presentacion_final}) x{cant_pos}", precio_final_cobrado, ganancia_limpia)
             except Exception as err:
-                st.error(f"Error al guardar la venta: {err}")
+                st.error(f"Error al registrar venta: {err}")
+
+# -------------------------------------------------------------------
+# 2. PESTAÑA: VENTA TRADICIONAL & HISTORIAL
+# -------------------------------------------------------------------
+with tab_clasica:
+    st.header("🛒 Registro y Historial Detallado")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        fecha_venta = st.date_input("Fecha:", datetime.now(), key="trad_fecha")
+        prod_sel = st.selectbox("Producto:", list(st.session_state.RECETAS.keys()), key="trad_prod")
+        datos_prod = st.session_state.RECETAS[prod_sel]
+        
+    with col2:
+        tipo_presentacion = st.selectbox("Presentación:", list(datos_prod["precios"].keys()), key="trad_pres")
+        cantidad = st.number_input("Cantidad vendida:", min_value=1, value=1, step=1, key="trad_cant")
+        
+        cant_budin_promo = 0
+        budin_sel_promo = None
+        precio_extra_budin = 0.0
+        
+        if "Cafe" in prod_sel:
+            st.markdown("---")
+            agregar_promo = st.checkbox("☕ Promo: ¡Agregar porción de Budín a $750!", key="trad_promo")
+            if agregar_promo:
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    budines_disponibles = [p for p in st.session_state.RECETAS.keys() if "Budin" in p]
+                    budin_sel_promo = st.selectbox("Gusto del budín:", budines_disponibles, key="trad_budin_sel")
+                with col_b2:
+                    cant_budin_promo = st.number_input("Porciones de budín promo:", min_value=1, value=1, step=1, key="trad_budin_cant")
+                
+                precio_extra_budin = cant_budin_promo * 750.0
+
+        precio_base = float(datos_prod["precios"][tipo_presentacion] * cantidad)
+        precio_total_sugerido = precio_base + precio_extra_budin
+        precio_cobrado = st.number_input("Precio Total Cobrado ($):", value=precio_total_sugerido, key="trad_precio")
+
+    costo_lote, costo_u = calcular_costo_receta(prod_sel)
+    
+    if "Docena (12u)" in tipo_presentacion:
+        costo_total_venta = costo_u * 12 * cantidad
+    elif "Media Docena (6u)" in tipo_presentacion:
+        costo_total_venta = costo_u * 6 * cantidad
+    elif "Porción" in tipo_presentacion or "1 Unidad" in tipo_presentacion:
+        costo_total_venta = costo_u * cantidad
+    else:
+        costo_total_venta = costo_lote * cantidad
+
+    if cant_budin_promo > 0 and budin_sel_promo:
+        _, costo_u_budin = calcular_costo_receta(budin_sel_promo)
+        costo_total_venta += (costo_u_budin * cant_budin_promo)
+
+    ganancia_limpia = precio_cobrado - costo_total_venta
+
+    st.markdown(f"""
+        <div style="background-color: #1a232e; padding: 15px; border-radius: 12px; margin: 15px 0; border: 1px solid #2d3b4e;">
+            <div style="display: flex; justify-content: space-around; text-align: center;">
+                <div>
+                    <div style="font-size: 13px; color: #a0aec0;">COSTO INSUMOS</div>
+                    <div style="font-size: 22px; font-weight: bold; color: #f87171;">${costo_total_venta:,.2f}</div>
+                </div>
+                <div>
+                    <div style="font-size: 13px; color: #a0aec0;">GANANCIA LIMPIA</div>
+                    <div style="font-size: 22px; font-weight: bold; color: #4ade80;">${ganancia_limpia:,.2f}</div>
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    if st.button("💾 Guardar Venta en la Nube", use_container_width=True, key="trad_save"):
+        try:
+            presentacion_final = tipo_presentacion
+            if cant_budin_promo > 0 and budin_sel_promo:
+                gusto_corto = budin_sel_promo.replace("Budin de ", "").replace("Budin ", "")
+                presentacion_final += f" + {cant_budin_promo}x Budín {gusto_corto} (Promo $750)"
+
+            registro = {
+                "fecha": str(fecha_venta),
+                "producto": prod_sel,
+                "cantidad": int(cantidad),
+                "tipo_venta": presentacion_final,
+                "monto_total": float(precio_cobrado),
+                "costo_total": float(costo_total_venta),
+                "ganancia_limpia": float(ganancia_limpia)
+            }
+            supabase.table("ventas").insert(registro).execute()
+            st.success("¡Venta registrada con éxito!")
+            st.rerun()
+        except Exception as err:
+            st.error(f"Error al guardar la venta: {err}")
 
     st.markdown("---")
     st.subheader("📋 Historial de Ventas Registradas")
@@ -340,28 +500,30 @@ if opcion_menu == "📊 Cargar Venta Diaria":
             col_info, col_btn = st.columns([5, 1])
             with col_info:
                 st.markdown(f"""
-                <div class="venta-item">
+                <div style="background-color: #1a232a; padding: 12px; border-radius: 8px; border-left: 4px solid #72b3c2; margin-bottom: 8px; font-size: 15px;">
                     📅 <b>{row.get('fecha')}</b> | <b>{row.get('producto')}</b> ({row.get('tipo_venta')}) x{row.get('cantidad')}<br>
                     <span style="color: #93c5fd;">Total: <b>${row.get('monto_total'):,.2f}</b></span> | 
                     <span style="color: #4ade80;">Ganancia: <b>${row.get('ganancia_limpia'):,.2f}</b></span>
                 </div>
                 """, unsafe_allow_html=True)
             with col_btn:
-                if st.button("🗑️ Borrar", key=f"del_{row.get('id')}"):
+                if st.button("🗑️", key=f"del_{row.get('id')}"):
                     supabase.table("ventas").delete().eq("id", row.get("id")).execute()
                     st.success("Venta eliminada.")
                     st.rerun()
     else:
-        st.markdown("<p style='color: #e0f2fe;'>✨ Aún no hay ventas registradas.</p>", unsafe_allow_html=True)
+        st.info("✨ Aún no hay ventas registradas.")
 
-elif opcion_menu == "📈 Métricas y Gráficos":
+# -------------------------------------------------------------------
+# 3. PESTAÑA: MÉTRICAS Y GRÁFICOS
+# -------------------------------------------------------------------
+with tab_metricas:
     st.header("📈 Desempeño del Negocio")
     
     try:
         respuesta = supabase.table("ventas").select("*").execute()
         datos_ventas = respuesta.data
     except Exception as err:
-        st.error(f"No se pudieron cargar los datos: {err}")
         datos_ventas = []
 
     if datos_ventas:
@@ -399,35 +561,34 @@ elif opcion_menu == "📈 Métricas y Gráficos":
         with col_g2:
             st.subheader("💰 Productos Más Rentables")
             rent_ranking = df.groupby('producto')['ganancia_limpia'].sum().reset_index().sort_values(by='ganancia_limpia', ascending=False)
-            fig_rent = px.bar(rent_ranking, x='producto', y='ganancia_limpia', title="Ganancia Neta Limpia ($)", color_discrete_sequence=['#5c9ead'])
+            fig_rent = px.bar(rent_ranking, x='producto', y='ganancia_limpia', title="Ganancia Neta Limpia ($)", color_discrete_sequence=['#e8a598'])
             st.plotly_chart(fig_rent, use_container_width=True)
-
     else:
-        st.markdown("<p style='color: #e0f2fe;'>Todavía no hay ventas cargadas.</p>", unsafe_allow_html=True)
+        st.info("Todavía no hay ventas cargadas para mostrar métricas.")
 
-elif opcion_menu == "🏷️ Modificar y Crear Productos":
+# -------------------------------------------------------------------
+# 4. PESTAÑA: PRODUCTOS Y RECETAS
+# -------------------------------------------------------------------
+with tab_productos:
     st.header("🏷️ Gestor de Productos y Recetas")
     
-    sub_tab1, sub_tab2, sub_tab3 = st.tabs(["✏️ Modificar Precios de Venta", "➕ Crear Nuevo Producto", "🗑️ Eliminar Producto"])
+    sub_tab1, sub_tab2, sub_tab3 = st.tabs(["✏️ Modificar Precios", "➕ Crear Producto", "🗑️ Eliminar Producto"])
 
     with sub_tab1:
-        st.write("Acá podés actualizar los precios de venta al público de tus productos actuales.")
         if st.session_state.RECETAS:
             col_p1, col_p2 = st.columns([2, 1])
-
             with col_p1:
-                prod_mod = st.selectbox("Seleccioná un Producto:", list(st.session_state.RECETAS.keys()))
+                prod_mod = st.selectbox("Seleccioná un Producto:", list(st.session_state.RECETAS.keys()), key="prod_mod_sel")
                 pres_dict = st.session_state.RECETAS[prod_mod]["precios"]
-                pres_mod = st.selectbox("Seleccioná la Presentación:", list(pres_dict.keys()))
+                pres_mod = st.selectbox("Seleccioná la Presentación:", list(pres_dict.keys()), key="pres_mod_sel")
                 
                 precio_actual_vta = pres_dict[pres_mod]
                 nuevo_precio_vta = st.number_input(f"Nuevo precio para '{prod_mod}' ({pres_mod}) ($):", value=float(precio_actual_vta), step=100.0)
 
                 if st.button("💾 Guardar Nuevo Precio de Venta"):
                     st.session_state.RECETAS[prod_mod]["precios"][pres_mod] = nuevo_precio_vta
-                    # Actualizar en Supabase
                     supabase.table("productos").update({"precios": st.session_state.RECETAS[prod_mod]["precios"]}).eq("nombre", prod_mod).execute()
-                    st.success(f"¡Precio actualizado permanentemente! **{prod_mod}** ({pres_mod}) ahora vale **${nuevo_precio_vta:,.2f}**.")
+                    st.success(f"¡Precio actualizado! **{prod_mod}** ({pres_mod}) -> **${nuevo_precio_vta:,.2f}**")
                     st.rerun()
 
             with col_p2:
@@ -439,30 +600,27 @@ elif opcion_menu == "🏷️ Modificar y Crear Productos":
                 st.dataframe(pd.DataFrame(lista_precios_resumen), height=400, use_container_width=True)
 
     with sub_tab2:
-        st.subheader("➕ Agregar un Producto Nuevo con su Receta")
-        st.write("Completá los datos a continuación para registrar una nueva receta completa en la nube.")
-
+        st.subheader("➕ Agregar Producto Nuevo con Receta")
         col_n1, col_n2 = st.columns(2)
         with col_n1:
-            nuevo_nombre_prod = st.text_input("Nombre del producto (ej: Lemon Pie):")
-            rinde_prod = st.number_input("Rendimiento total (porciones u unidades por receta):", min_value=1, value=8, step=1)
-            tipo_rinde = st.selectbox("Unidad de medida del rendimiento:", ["porciones", "unidades", "entero"])
+            nuevo_nombre_prod = st.text_input("Nombre del producto:")
+            rinde_prod = st.number_input("Rendimiento total por receta:", min_value=1, value=8, step=1)
+            tipo_rinde = st.selectbox("Unidad del rendimiento:", ["porciones", "unidades", "entero"])
 
         with col_n2:
             st.markdown("**Precios de Venta al Público ($):**")
             p_enteros = st.number_input("Precio Entero / Tanda Completa ($):", min_value=0.0, value=0.0, step=100.0)
-            p_porcion = st.number_input("Precio por Porción / Unidad individual ($):", min_value=0.0, value=0.0, step=50.0)
+            p_porcion = st.number_input("Precio por Porción / Unidad ($):", min_value=0.0, value=0.0, step=50.0)
             p_media_docena = st.number_input("Precio por Media Docena (6u) ($):", min_value=0.0, value=0.0, step=100.0)
             p_docena = st.number_input("Precio por Docena (12u) ($):", min_value=0.0, value=0.0, step=100.0)
 
         st.markdown("---")
         st.subheader("🥣 Ingredientes de la Receta")
         insumos_disponibles = list(st.session_state.INSUMOS.keys())
-        ingredientes_seleccionados = st.multiselect("Seleccionar los insumos que lleva la receta:", insumos_disponibles)
+        ingredientes_seleccionados = st.multiselect("Seleccionar insumos:", insumos_disponibles)
         
         dict_ingredientes_nuevo = {}
         if ingredientes_seleccionados:
-            st.write("Ingresá la cantidad necesaria de cada ingrediente por receta completa:")
             cols_ing = st.columns(2)
             for idx, ing in enumerate(ingredientes_seleccionados):
                 col_curr = cols_ing[idx % 2]
@@ -474,9 +632,9 @@ elif opcion_menu == "🏷️ Modificar y Crear Productos":
 
         if st.button("✨ Guardar Nuevo Producto Completo", use_container_width=True):
             if not nuevo_nombre_prod.strip():
-                st.warning("Por favor, escribí un nombre válido para el producto.")
+                st.warning("Por favor, escribí un nombre válido.")
             elif not dict_ingredientes_nuevo:
-                st.warning("Por favor, elegí al menos un ingrediente para la receta.")
+                st.warning("Elegí al menos un ingrediente.")
             else:
                 try:
                     dict_precios = {}
@@ -488,7 +646,6 @@ elif opcion_menu == "🏷️ Modificar y Crear Productos":
                     if p_docena > 0: dict_precios["Docena (12u)"] = float(p_docena)
 
                     if not dict_precios: dict_precios["Entero"] = 0.0
-
                     nombre_limpio = nuevo_nombre_prod.strip()
 
                     nuevo_registro = {
@@ -499,10 +656,7 @@ elif opcion_menu == "🏷️ Modificar y Crear Productos":
                         "ingredientes": dict_ingredientes_nuevo
                     }
                     
-                    # Guardar en Supabase
                     supabase.table("productos").insert(nuevo_registro).execute()
-                    
-                    # Actualizar memoria local
                     st.session_state.RECETAS[nombre_limpio] = {
                         "rinde": int(rinde_prod),
                         "tipo": tipo_rinde,
@@ -510,34 +664,30 @@ elif opcion_menu == "🏷️ Modificar y Crear Productos":
                         "ingredientes": dict_ingredientes_nuevo
                     }
 
-                    # Abrir el cartel emergente modal con la confirmación
                     modal_producto_guardado(nombre_limpio)
                 except Exception as err:
-                    st.error(f"Error al guardar el producto en la nube: {err}")
+                    st.error(f"Error al guardar producto: {err}")
 
     with sub_tab3:
-        st.subheader("🗑️ Eliminar Producto")
         if st.session_state.RECETAS:
-            prod_eliminar = st.selectbox("Seleccioná el producto a eliminar:", list(st.session_state.RECETAS.keys()), key="del_prod_sel")
-            st.warning(f"⚠️ Al hacer clic en borrar, el producto **'{prod_eliminar}'** se eliminará para siempre.")
+            prod_eliminar = st.selectbox("Producto a eliminar:", list(st.session_state.RECETAS.keys()), key="del_prod_sel")
             if st.button("🗑️ Eliminar Producto Definitivamente"):
                 supabase.table("productos").delete().eq("nombre", prod_eliminar).execute()
                 del st.session_state.RECETAS[prod_eliminar]
-                st.success(f"El producto **'{prod_eliminar}'** fue eliminado.")
+                st.success(f"Producto **'{prod_eliminar}'** eliminado.")
                 st.rerun()
-        else:
-            st.info("No hay productos registrados para eliminar.")
 
-elif opcion_menu == "🛒 Gestor de Precios de Insumos":
+# -------------------------------------------------------------------
+# 5. PESTAÑA: GESTOR DE INSUMOS
+# -------------------------------------------------------------------
+with tab_insumos:
     st.header("🛒 Gestor de Insumos y Materias Primas")
-    st.write("Modificá los costos cuando compres más caro, agregá o eliminá insumos de la base de datos.")
-
     col_i1, col_i2 = st.columns([2, 1])
     
     with col_i1:
         st.subheader("✏️ Editar Precio Existente")
         if st.session_state.INSUMOS:
-            insumo_editar = st.selectbox("Seleccioná un insumo:", list(st.session_state.INSUMOS.keys()))
+            insumo_editar = st.selectbox("Seleccioná un insumo:", list(st.session_state.INSUMOS.keys()), key="ins_edit_sel")
             precio_actual = st.session_state.INSUMOS[insumo_editar]
             nuevo_precio = st.number_input(f"Nuevo costo de '{insumo_editar}' ($):", value=float(precio_actual), step=50.0)
             
@@ -546,43 +696,40 @@ elif opcion_menu == "🛒 Gestor de Precios de Insumos":
                 if st.button("🔄 Actualizar Costo"):
                     supabase.table("insumos").update({"precio": nuevo_precio}).eq("nombre", insumo_editar).execute()
                     st.session_state.INSUMOS[insumo_editar] = nuevo_precio
-                    st.success(f"¡Costo de **{insumo_editar}** actualizado a **${nuevo_precio:,.2f}** en la nube!")
+                    st.success(f"Costo de **{insumo_editar}** actualizado a **${nuevo_precio:,.2f}**")
                     st.rerun()
             with col_b_ins2:
                 if st.button("🗑️ Eliminar Insumo"):
                     supabase.table("insumos").delete().eq("nombre", insumo_editar).execute()
                     del st.session_state.INSUMOS[insumo_editar]
-                    st.success(f"Insumo **'{insumo_editar}'** eliminado definitivamente.")
+                    st.success(f"Insumo **'{insumo_editar}'** eliminado.")
                     st.rerun()
 
         st.markdown("---")
         st.subheader("➕ Agregar Nuevo Insumo")
-        nuevo_nombre_insumo = st.text_input("Nombre del insumo (ej: Durazno en lata):")
+        nuevo_nombre_insumo = st.text_input("Nombre del insumo:")
         nuevo_precio_insumo = st.number_input("Costo del insumo ($):", value=0.0, step=50.0)
         if st.button("➕ Crear Insumo"):
             if nuevo_nombre_insumo.strip() != "":
                 nom = nuevo_nombre_insumo.strip()
                 supabase.table("insumos").insert({"nombre": nom, "precio": nuevo_precio_insumo}).execute()
                 st.session_state.INSUMOS[nom] = nuevo_precio_insumo
-                st.success(f"¡Insumo **'{nom}'** creado con éxito en la nube!")
+                st.success(f"Insumo **'{nom}'** creado con éxito.")
                 st.rerun()
-            else:
-                st.warning("Escribí un nombre válido para el insumo.")
 
     with col_i2:
         st.subheader("📋 Lista de Insumos")
         df_ins = pd.DataFrame(list(st.session_state.INSUMOS.items()), columns=["Insumo", "Costo ($)"])
         st.dataframe(df_ins, height=450, use_container_width=True)
 
-elif opcion_menu == "⚙️ Calculadora y Costo de Insumos":
+# -------------------------------------------------------------------
+# 6. PESTAÑA: CALCULADORA Y MARGENES
+# -------------------------------------------------------------------
+with tab_calc:
     st.header("⚙️ Calculadora y Márgenes por Producto")
-    
-    if not st.session_state.RECETAS:
-        st.info("No hay productos creados para calcular costos.")
-    else:
-        receta_seleccionada = st.selectbox("Elegí un producto:", list(st.session_state.RECETAS.keys()))
+    if st.session_state.RECETAS:
+        receta_seleccionada = st.selectbox("Elegí un producto:", list(st.session_state.RECETAS.keys()), key="calc_prod_sel")
         receta = st.session_state.RECETAS[receta_seleccionada]
-        
         costo_lote, costo_u = calcular_costo_receta(receta_seleccionada)
         
         col_c1, col_c2 = st.columns(2)
@@ -593,7 +740,7 @@ elif opcion_menu == "⚙️ Calculadora y Costo de Insumos":
             st.write(f"• **Costo unitario:** ${costo_u:,.2f}")
 
         with col_c2:
-            st.subheader("💵 Margen de Ganancia por Presentación")
+            st.subheader("💵 Margen por Presentación")
             tabla_margenes = []
             for pres, precio_vta in receta["precios"].items():
                 if "Docena (12u)" in pres:
@@ -622,7 +769,6 @@ elif opcion_menu == "⚙️ Calculadora y Costo de Insumos":
         for ing, cant in receta["ingredientes"].items():
             precio_u_ing = st.session_state.INSUMOS.get(ing, 0)
             costo_total_ing = cant * precio_u_ing
-            
             cant_str = f"{int(cant)}" if "(unidad)" in ing.lower() else f"{cant:.3f}"
             
             desglose.append({
@@ -632,4 +778,3 @@ elif opcion_menu == "⚙️ Calculadora y Costo de Insumos":
                 "Costo en la receta ($)": f"${costo_total_ing:,.2f}"
             })
         st.table(pd.DataFrame(desglose))
-            

@@ -6,7 +6,7 @@ from supabase import create_client, Client
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Dulce Mar - App Pasteleria", 
+    page_title="Dulce Mar - App Pastelería",
     page_icon="🧁",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -220,7 +220,7 @@ st.markdown("""
 st.markdown("""
     <div class="brand-header">
         <h1>🧁 DULCE MAR</h1>
-        <p>Sistema POS de Gestión y Ventas</p>
+        <p>Sistema de Gestión y Ventas para Pastelería</p>
     </div>
 """, unsafe_allow_html=True)
 

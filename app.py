@@ -99,7 +99,7 @@ if "INSUMOS" not in st.session_state:
         "Maicena (kg)": 4100.0, "Crema de Leche (litro)": 3800.0, "Caja (unidad)": 2000.0,
         "Frutos rojos (kg)": 16000.0, "Bandeja torta (unidad)": 800.0, "Naranja (kg)": 2000.0,
         "Limon (kg)": 1500.0, "Queso crema (kg)": 12000.0, "Esencia de vainilla (litro)": 22600.0,
-        "Coco rallado (kg)": 43400.0, "Bolsa (unidad)": 32.0, "Bandeja (unidad)": 40.0,
+        "Coco rallado (kg)": 43400.0, "Bolsa (unidad)": 32.0, "Bandeja (unidad)": 40.0, "Vaso Chico (unidad)": 72.0, "Vaso Grande (unidad)": 100.0, "Cafe molido (kg)": 18550.0,
         "Preparado para Chipa (kg)": 14975.0, "Banana (kg)": 3500.0, "Galletitas vainilla (kg)": 12000.0
     }
 
@@ -107,48 +107,58 @@ if "INSUMOS" not in st.session_state:
 RECETAS = {
     "Alfajores de maicena": {
         "rinde": 30, "tipo": "unidades",
-        "precios": {"1 Unidad": 1500.0, "Media Docena (6u)": 7000.0, "Docena (12u)": 13000.0},
+        "precios": {"1 Unidad": 1250.0, "Media Docena (6u)": 7500.0, "Docena (12u)": 15000.0},
         "ingredientes": {"Harina Leudante (kg)": 0.200, "Manteca (kg)": 0.100, "Azúcar impalpable (kg)": 0.100, "Maicena (kg)": 0.300, "Dulce de Leche (kg)": 0.250, "Huevo (unidad)": 2, "Esencia de vainilla (litro)": 0.005, "Coco rallado (kg)": 0.010, "Bolsa (unidad)": 30}
     },
     "Budin de chocolate/marmolado": {
         "rinde": 14, "tipo": "porciones",
-        "precios": {"Porción": 1200.0, "Entero": 14000.0},
+        "precios": {"Porción": 1000.0, "Entero": 12000.0},
         "ingredientes": {"Harina Leudante (kg)": 0.300, "Toddy cacao polvo (kg)": 0.050, "Azúcar (kg)": 0.200, "Aceite (litro)": 0.100, "Huevo (unidad)": 2, "Leche (litro)": 0.175, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
     },
     "Budin de vainilla": {
         "rinde": 14, "tipo": "porciones",
-        "precios": {"Porción": 1100.0, "Entero": 13000.0},
+        "precios": {"Porción": 1000.0, "Entero": 12000.0},
         "ingredientes": {"Harina Leudante (kg)": 0.300, "Esencia de vainilla (litro)": 0.005, "Azúcar (kg)": 0.200, "Aceite (litro)": 0.100, "Huevo (unidad)": 2, "Leche (litro)": 0.175, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
     },
     "Budin de limón": {
         "rinde": 14, "tipo": "porciones",
-        "precios": {"Porción": 1200.0, "Entero": 14000.0},
+        "precios": {"Porción": 1000.0, "Entero": 12000.0},
         "ingredientes": {"Harina Leudante (kg)": 0.260, "Limon (kg)": 0.150, "Azúcar (kg)": 0.200, "Aceite (litro)": 0.120, "Huevo (unidad)": 3, "Leche (litro)": 0.175, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
     },
     "Budin de Naranja": {
         "rinde": 14, "tipo": "porciones",
-        "precios": {"Porción": 1200.0, "Entero": 14000.0},
+        "precios": {"Porción": 1000.0, "Entero": 12000.0},
         "ingredientes": {"Harina Leudante (kg)": 0.260, "Naranja (kg)": 0.130, "Azúcar (kg)": 0.200, "Aceite (litro)": 0.120, "Huevo (unidad)": 3, "Leche (litro)": 0.175, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
     },
     "Budin de banana": {
         "rinde": 9, "tipo": "porciones",
-        "precios": {"Porción": 1500.0, "Entero": 12000.0},
+        "precios": {"Porción": 1000.0, "Entero": 9000.0},
         "ingredientes": {"Harina Leudante (kg)": 0.150, "Banana (kg)": 0.200, "Azúcar (kg)": 0.180, "Aceite (litro)": 0.060, "Huevo (unidad)": 2, "Esencia de vainilla (litro)": 0.005, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
     },
     "Lemonies": {
         "rinde": 4, "tipo": "porciones",
-        "precios": {"Porción": 2500.0, "Entero": 9000.0},
+        "precios": {"Porción": 4000.0, "Entero": 15000.0},
         "ingredientes": {"Harina Leudante (kg)": 0.140, "Limon (kg)": 0.150, "Azúcar (kg)": 0.155, "Manteca (kg)": 0.100, "Huevo (unidad)": 3, "Azucar impalpable (kg)": 0.100, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
     },
     "Chessecake": {
         "rinde": 1, "tipo": "entero",
-        "precios": {"Entero": 18000.0},
+        "precios": {"Entero": 45000.0},
         "ingredientes": {"Frutos rojos (kg)": 0.500, "Manteca (kg)": 0.080, "Azúcar (kg)": 0.200, "Queso crema (kg)": 0.340, "Galletitas vainilla (kg)": 0.300, "Naranja (kg)": 0.130, "Crema de Leche (litro)": 0.110, "Huevo (unidad)": 3, "Bandeja (unidad)": 1, "Caja (unidad)": 1}
     },
     "Chipa": {
         "rinde": 30, "tipo": "unidades",
-        "precios": {"1 Unidad": 300.0, "Media Docena (6u)": 1600.0, "Docena (12u)": 3000.0},
+        "precios": {"Media Docena (6u)": 5000.0, "Docena (12u)": 10000.0},
         "ingredientes": {"Huevo (unidad)": 3, "Preparado para Chipa (kg)": 0.400}
+    },
+    "Cafe chico": {
+        "rinde": 1, "tipo": "entero",
+        "precios": {"Entero": 2000.0},
+        "ingredientes": {"Cafe molido (kg)": 0.006,"leche(litro)": 0.090, "Azúcar (kg)": 0.050, "Vaso Chico (unidad)": 1}
+    },
+    "Cafe grande": {
+        "rinde": 1, "tipo": "entero",
+        "precios": {"Entero": 3000.0},
+        "ingredientes": {"Cafe molido (kg)": 0.008,"leche(litro)": 0.120, "Azúcar (kg)": 0.050, "Vaso Grande (unidad)": 1}
     }
 }
 

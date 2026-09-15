@@ -147,7 +147,7 @@ def calcular_costo_receta(nombre_receta):
     costo_unitario = costo_lote / receta["rinde"]
     return costo_lote, costo_unitario
 
-# Estilos CSS táctiles optimizados
+# Estilos CSS táctiles optimizados (Bloqueo de teclado en selectbox)
 st.markdown("""
     <style>
     .stApp {
@@ -196,14 +196,11 @@ st.markdown("""
         background-color: #72b3c2 !important;
         color: #12181f !important;
     }
-    /* Estilo radio táctil */
-    div[data-radiogroup] label {
-        background-color: #1e2a38;
-        padding: 10px;
-        border-radius: 8px;
-        border: 1px solid #2d3b4e;
-        margin-bottom: 4px;
-        width: 100%;
+    
+    /* DESACTIVAR TECLADO TÁCTIL EN SELECTBOX */
+    div[data-baseweb="select"] input {
+        aria-autocomplete: none !important;
+        pointer-events: none !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -216,7 +213,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# NAVEGACIÓN PRINCIPAL (SIN CAJA RÁPIDA)
+# NAVEGACIÓN PRINCIPAL
 tab_ventas, tab_metricas, tab_productos, tab_insumos = st.tabs([
     "🛒 Registrar Venta", 
     "📈 Métricas y Progreso", 
@@ -225,21 +222,20 @@ tab_ventas, tab_metricas, tab_productos, tab_insumos = st.tabs([
 ])
 
 # -------------------------------------------------------------------
-# 1. PESTAÑA: REGISTRAR VENTA (SELECCIÓN TÁCTIL SIN TECLADO)
+# 1. PESTAÑA: REGISTRAR VENTA (DESPLEGABLE UNICO TÁCTIL SIN TECLADO)
 # -------------------------------------------------------------------
 with tab_ventas:
-    st.subheader("🛒 Registro de Venta Táctil")
+    st.subheader("🛒 Registro de Venta")
     fecha_venta = st.date_input("Fecha:", datetime.now(), key="trad_fecha")
     
-    st.write("👇 **Toca para elegir el Producto (sin escribir):**")
     lista_productos = list(st.session_state.RECETAS.keys())
-    prod_sel = st.radio("Producto:", lista_productos, key="radio_prod_tactil", label_visibility="collapsed")
+    
+    # Selector desplegable compacto que al tocar abre la lista sin desplegar teclado
+    prod_sel = st.selectbox("Seleccionar Producto:", lista_productos, key="select_prod_tactil")
     
     datos_prod = st.session_state.RECETAS[prod_sel]
     
-    st.markdown("---")
-    st.write("👇 **Presentación:**")
-    tipo_presentacion = st.radio("Presentación:", list(datos_prod["precios"].keys()), horizontal=True, key="radio_pres_tactil")
+    tipo_presentacion = st.selectbox("Presentación:", list(datos_prod["precios"].keys()), key="select_pres_tactil")
     
     col_c1, col_c2 = st.columns(2)
     with col_c1:
@@ -254,8 +250,7 @@ with tab_ventas:
         agregar_promo = st.checkbox("☕ Promo: ¡Agregar porción de Budín a $750!", key="trad_promo")
         if agregar_promo:
             budines_disponibles = [p for p in st.session_state.RECETAS.keys() if "Budin" in p]
-            st.write("Sabor de Budín promo:")
-            budin_sel_promo = st.radio("Gusto Budin Promo:", budines_disponibles, key="trad_budin_radio", label_visibility="collapsed")
+            budin_sel_promo = st.selectbox("Sabor Budín Promo:", budines_disponibles, key="trad_budin_select")
             cant_budin_promo = st.number_input("Cantidad porciones promo:", min_value=1, value=1, step=1, key="trad_budin_cant")
             precio_extra_budin = cant_budin_promo * 750.0
 
@@ -382,15 +377,12 @@ with tab_metricas:
 
         st.markdown("---")
         
-        # Selección de vista táctil para gráficos
         modo_progreso = st.radio("Ver Progreso por:", ["Día a Día 📅", "Mes a Mes 🗓️"], horizontal=True, key="modo_progreso")
 
         if "Día a Día" in modo_progreso:
             st.subheader("📅 Ganancia Limpia Día a Día")
             ventas_diarias = df.groupby('Fecha_Dia')['ganancia_limpia'].sum().reset_index()
             fig_dia = px.line(ventas_diarias, x='Fecha_Dia', y='ganancia_limpia', markers=True, title="Ganancia Diaria ($)", color_discrete_sequence=['#4ade80'])
-            
-            # Bloqueo de zoom/interacción táctil accidental
             fig_dia.update_xaxes(fixedrange=True)
             fig_dia.update_yaxes(fixedrange=True)
             st.plotly_chart(fig_dia, use_container_width=True, config={'displayModeBar': False})
@@ -399,8 +391,6 @@ with tab_metricas:
             st.subheader("🗓️ Ganancia Limpia Mes a Mes")
             ventas_mensuales = df.groupby('Mes_Año')['ganancia_limpia'].sum().reset_index()
             fig_mes = px.bar(ventas_mensuales, x='Mes_Año', y='ganancia_limpia', title="Ganancia Mensual ($)", color_discrete_sequence=['#72b3c2'])
-            
-            # Bloqueo de zoom/interacción táctil accidental
             fig_mes.update_xaxes(fixedrange=True)
             fig_mes.update_yaxes(fixedrange=True)
             st.plotly_chart(fig_mes, use_container_width=True, config={'displayModeBar': False})
@@ -417,8 +407,6 @@ with tab_metricas:
             st.subheader("💰 Productos Más Rentables")
             rent_ranking = df.groupby('producto')['ganancia_limpia'].sum().reset_index().sort_values(by='ganancia_limpia', ascending=False)
             fig_rent = px.bar(rent_ranking, x='producto', y='ganancia_limpia', title="Ganancia Neta ($)", color_discrete_sequence=['#e8a598'])
-            
-            # Autoescala fija sin desconfiguración táctil
             fig_rent.update_xaxes(fixedrange=True)
             fig_rent.update_yaxes(fixedrange=True)
             st.plotly_chart(fig_rent, use_container_width=True, config={'displayModeBar': False})
@@ -434,12 +422,10 @@ with tab_productos:
 
     with sub_tab1:
         if st.session_state.RECETAS:
-            st.write("Elegí el producto:")
-            prod_mod = st.radio("Producto a modificar:", list(st.session_state.RECETAS.keys()), key="prod_mod_radio")
+            prod_mod = st.selectbox("Producto a modificar:", list(st.session_state.RECETAS.keys()), key="select_prod_mod")
             pres_dict = st.session_state.RECETAS[prod_mod]["precios"]
             
-            st.write("Elegí la presentación:")
-            pres_mod = st.radio("Presentación a modificar:", list(pres_dict.keys()), horizontal=True, key="pres_mod_radio")
+            pres_mod = st.selectbox("Presentación a modificar:", list(pres_dict.keys()), key="select_pres_mod")
             
             precio_actual_vta = pres_dict[pres_mod]
             nuevo_precio_vta = st.number_input(f"Nuevo precio para '{prod_mod}' ({pres_mod}) ($):", value=float(precio_actual_vta), step=100.0)
@@ -454,7 +440,7 @@ with tab_productos:
         st.subheader("➕ Agregar Producto Nuevo")
         nuevo_nombre_prod = st.text_input("Nombre del producto:")
         rinde_prod = st.number_input("Rendimiento total:", min_value=1, value=8, step=1)
-        tipo_rinde = st.radio("Unidad del rendimiento:", ["porciones", "unidades", "entero"], horizontal=True)
+        tipo_rinde = st.selectbox("Unidad del rendimiento:", ["porciones", "unidades", "entero"])
 
         st.markdown("**Precios de Venta ($):**")
         p_enteros = st.number_input("Precio Entero ($):", min_value=0.0, value=0.0, step=100.0)
@@ -514,7 +500,7 @@ with tab_productos:
 
     with sub_tab3:
         if st.session_state.RECETAS:
-            prod_eliminar = st.radio("Producto a eliminar:", list(st.session_state.RECETAS.keys()), key="del_prod_radio")
+            prod_eliminar = st.selectbox("Producto a eliminar:", list(st.session_state.RECETAS.keys()), key="select_del_prod")
             if st.button("🗑️ Eliminar Producto Definitivamente", use_container_width=True):
                 supabase.table("productos").delete().eq("nombre", prod_eliminar).execute()
                 del st.session_state.RECETAS[prod_eliminar]
@@ -527,7 +513,7 @@ with tab_productos:
 with tab_insumos:
     st.header("🛒 Gestor de Insumos")
     if st.session_state.INSUMOS:
-        insumo_editar = st.radio("Seleccioná un insumo a editar:", list(st.session_state.INSUMOS.keys()), key="ins_edit_radio")
+        insumo_editar = st.selectbox("Seleccioná un insumo a editar:", list(st.session_state.INSUMOS.keys()), key="select_ins_edit")
         precio_actual = st.session_state.INSUMOS[insumo_editar]
         nuevo_precio = st.number_input(f"Nuevo costo de '{insumo_editar}' ($):", value=float(precio_actual), step=50.0)
         

@@ -23,17 +23,142 @@ try:
 except Exception as e:
     st.error("Error al conectar con la base de datos. Verificá los Secrets de Streamlit.")
 
+# --- DATOS POR DEFECTO PARA PRIMERA CARGA EN SUPABASE ---
+INSUMOS_DEFAULT = {
+    "Harina Leudante (kg)": 1700.0, "Manteca (kg)": 19500.0, "Azúcar (kg)": 1400.0,
+    "Dulce de Leche (kg)": 7000.0, "Huevo (unidad)": 150.0, "Aceite (litro)": 4000.0,
+    "Leche (litro)": 2290.0, "Toddy cacao polvo (kg)": 12600.0, "Azucar impalpable (kg)": 4000.0,
+    "Maicena (kg)": 4100.0, "Crema de Leche (litro)": 3800.0, "Caja (unidad)": 2000.0,
+    "Frutos rojos (kg)": 16000.0, "Bandeja torta (unidad)": 800.0, "Naranja (kg)": 2000.0,
+    "Limon (kg)": 1500.0, "Queso crema (kg)": 12000.0, "Esencia de vainilla (litro)": 22600.0,
+    "Coco rallado (kg)": 43400.0, "Bolsa (unidad)": 32.0, "Bandeja (unidad)": 40.0, 
+    "Vaso Chico (unidad)": 72.0, "Vaso Grande (unidad)": 100.0, "Cafe molido (kg)": 18550.0,
+    "Preparado para Chipa (kg)": 14975.0, "Banana (kg)": 3500.0, "Galletitas vainilla (kg)": 12000.0
+}
+
+RECETAS_DEFAULT = {
+    "Alfajores de maicena": {
+        "rinde": 30, "tipo": "unidades",
+        "precios": {"1 Unidad": 1250.0, "Media Docena (6u)": 7500.0, "Docena (12u)": 15000.0},
+        "ingredientes": {"Harina Leudante (kg)": 0.200, "Manteca (kg)": 0.100, "Azúcar impalpable (kg)": 0.100, "Maicena (kg)": 0.300, "Dulce de Leche (kg)": 0.250, "Huevo (unidad)": 2, "Esencia de vainilla (litro)": 0.005, "Coco rallado (kg)": 0.010, "Bolsa (unidad)": 30}
+    },
+    "Budin de chocolate/marmolado": {
+        "rinde": 14, "tipo": "porciones",
+        "precios": {"Porción": 1000.0, "Entero": 12000.0},
+        "ingredientes": {"Harina Leudante (kg)": 0.300, "Toddy cacao polvo (kg)": 0.050, "Azúcar (kg)": 0.200, "Aceite (litro)": 0.100, "Huevo (unidad)": 2, "Leche (litro)": 0.175, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
+    },
+    "Budin de vainilla": {
+        "rinde": 14, "tipo": "porciones",
+        "precios": {"Porción": 1000.0, "Entero": 12000.0},
+        "ingredientes": {"Harina Leudante (kg)": 0.300, "Esencia de vainilla (litro)": 0.005, "Azúcar (kg)": 0.200, "Aceite (litro)": 0.100, "Huevo (unidad)": 2, "Leche (litro)": 0.175, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
+    },
+    "Budin de limón": {
+        "rinde": 14, "tipo": "porciones",
+        "precios": {"Porción": 1000.0, "Entero": 12000.0},
+        "ingredientes": {"Harina Leudante (kg)": 0.260, "Limon (kg)": 0.150, "Azúcar (kg)": 0.200, "Aceite (litro)": 0.120, "Huevo (unidad)": 3, "Leche (litro)": 0.175, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
+    },
+    "Budin de Naranja": {
+        "rinde": 14, "tipo": "porciones",
+        "precios": {"Porción": 1000.0, "Entero": 12000.0},
+        "ingredientes": {"Harina Leudante (kg)": 0.260, "Naranja (kg)": 0.130, "Azúcar (kg)": 0.200, "Aceite (litro)": 0.120, "Huevo (unidad)": 3, "Leche (litro)": 0.175, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
+    },
+    "Budin de banana": {
+        "rinde": 9, "tipo": "porciones",
+        "precios": {"Porción": 1000.0, "Entero": 9000.0},
+        "ingredientes": {"Harina Leudante (kg)": 0.150, "Banana (kg)": 0.200, "Azúcar (kg)": 0.180, "Aceite (litro)": 0.060, "Huevo (unidad)": 2, "Esencia de vainilla (litro)": 0.005, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
+    },
+    "Lemonies": {
+        "rinde": 4, "tipo": "porciones",
+        "precios": {"Porción": 4000.0, "Entero": 15000.0},
+        "ingredientes": {"Harina Leudante (kg)": 0.140, "Limon (kg)": 0.150, "Azúcar (kg)": 0.155, "Manteca (kg)": 0.100, "Huevo (unidad)": 3, "Azucar impalpable (kg)": 0.100, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
+    },
+    "Chessecake": {
+        "rinde": 1, "tipo": "entero",
+        "precios": {"Entero": 45000.0},
+        "ingredientes": {"Frutos rojos (kg)": 0.500, "Manteca (kg)": 0.080, "Azúcar (kg)": 0.200, "Queso crema (kg)": 0.340, "Galletitas vainilla (kg)": 0.300, "Naranja (kg)": 0.130, "Crema de Leche (litro)": 0.110, "Huevo (unidad)": 3, "Bandeja (unidad)": 1, "Caja (unidad)": 1}
+    },
+    "Chipa": {
+        "rinde": 30, "tipo": "unidades",
+        "precios": {"Media Docena (6u)": 5000.0, "Docena (12u)": 10000.0},
+        "ingredientes": {"Huevo (unidad)": 3, "Preparado para Chipa (kg)": 0.400}
+    },
+    "Cafe chico": {
+        "rinde": 1, "tipo": "entero",
+        "precios": {"Entero": 2000.0},
+        "ingredientes": {"Cafe molido (kg)": 0.006,"Leche (litro)": 0.090, "Azúcar (kg)": 0.050, "Vaso Chico (unidad)": 1}
+    },
+    "Cafe grande": {
+        "rinde": 1, "tipo": "entero",
+        "precios": {"Entero": 3000.0},
+        "ingredientes": {"Cafe molido (kg)": 0.008,"Leche (litro)": 0.120, "Azúcar (kg)": 0.050, "Vaso Grande (unidad)": 1}
+    }
+}
+
+# --- FUNCIONES DE LECTURA Y ESCRITURA CON SUPABASE ---
+def obtener_insumos():
+    try:
+        res = supabase.table("insumos").select("*").execute()
+        if not res.data:
+            # Si está vacía, cargamos los iniciales
+            datos_insertar = [{"nombre": k, "precio": float(v)} for k, v in INSUMOS_DEFAULT.items()]
+            supabase.table("insumos").insert(datos_insertar).execute()
+            return {k: float(v) for k, v in INSUMOS_DEFAULT.items()}
+        return {item["nombre"]: float(item["precio"]) for item in res.data}
+    except Exception as e:
+        st.error(f"Error al obtener insumos: {e}")
+        return INSUMOS_DEFAULT
+
+def obtener_recetas():
+    try:
+        res = supabase.table("productos").select("*").execute()
+        if not res.data:
+            # Si está vacía, cargamos las iniciales
+            datos_insertar = []
+            for k, v in RECETAS_DEFAULT.items():
+                datos_insertar.append({
+                    "nombre": k,
+                    "rinde": v["rinde"],
+                    "tipo": v["tipo"],
+                    "precios": v["precios"],
+                    "ingredientes": v["ingredientes"]
+                })
+            supabase.table("productos").insert(datos_insertar).execute()
+            return RECETAS_DEFAULT
+        
+        recetas_dict = {}
+        for item in res.data:
+            recetas_dict[item["nombre"]] = {
+                "rinde": item["rinde"],
+                "tipo": item["tipo"],
+                "precios": item["precios"],
+                "ingredientes": item["ingredientes"]
+            }
+        return recetas_dict
+    except Exception as e:
+        st.error(f"Error al obtener productos: {e}")
+        return RECETAS_DEFAULT
+
+# Cargamos datos desde Supabase a session_state
+if "INSUMOS" not in st.session_state:
+    st.session_state.INSUMOS = obtener_insumos()
+
+if "RECETAS" not in st.session_state:
+    st.session_state.RECETAS = obtener_recetas()
+
+def calcular_costo_receta(nombre_receta):
+    receta = st.session_state.RECETAS[nombre_receta]
+    costo_lote = sum(cant * st.session_state.INSUMOS.get(ing, 0) for ing, cant in receta["ingredientes"].items())
+    costo_unitario = costo_lote / receta["rinde"]
+    return costo_lote, costo_unitario
+
 # Estilo visual adaptado al modo oscuro
 st.markdown("""
     <style>
-    /* Títulos en Celeste Pastel */
     h1, h2, h3 { 
         color: #72b3c2 !important; 
         font-family: 'Segoe UI', 'Helvetica Neue', sans-serif;
         font-weight: 700;
     }
-    
-    /* Botón Principal */
     .stButton>button { 
         background-color: #5c9ead; 
         color: white; 
@@ -47,8 +172,6 @@ st.markdown("""
         background-color: #4a8b9a; 
         color: white; 
     }
-
-    /* Tarjeta resumen */
     .card-resumen {
         background-color: #1e2d38;
         border-radius: 12px;
@@ -76,8 +199,6 @@ st.markdown("""
         font-weight: bold;
         color: #4ade80;
     }
-
-    /* Estilo para las filas e historial de ventas */
     .venta-item {
         background-color: #1a232a;
         padding: 14px 18px;
@@ -89,86 +210,6 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
-
-# 1. INSUMOS EN SESSION_STATE
-if "INSUMOS" not in st.session_state:
-    st.session_state.INSUMOS = {
-        "Harina Leudante (kg)": 1700.0, "Manteca (kg)": 19500.0, "Azúcar (kg)": 1400.0,
-        "Dulce de Leche (kg)": 7000.0, "Huevo (unidad)": 150.0, "Aceite (litro)": 4000.0,
-        "Leche (litro)": 2290.0, "Toddy cacao polvo (kg)": 12600.0, "Azucar impalpable (kg)": 4000.0,
-        "Maicena (kg)": 4100.0, "Crema de Leche (litro)": 3800.0, "Caja (unidad)": 2000.0,
-        "Frutos rojos (kg)": 16000.0, "Bandeja torta (unidad)": 800.0, "Naranja (kg)": 2000.0,
-        "Limon (kg)": 1500.0, "Queso crema (kg)": 12000.0, "Esencia de vainilla (litro)": 22600.0,
-        "Coco rallado (kg)": 43400.0, "Bolsa (unidad)": 32.0, "Bandeja (unidad)": 40.0, 
-        "Vaso Chico (unidad)": 72.0, "Vaso Grande (unidad)": 100.0, "Cafe molido (kg)": 18550.0,
-        "Preparado para Chipa (kg)": 14975.0, "Banana (kg)": 3500.0, "Galletitas vainilla (kg)": 12000.0
-    }
-
-# 2. RECETAS Y PRECIOS DE VENTA EN SESSION_STATE
-if "RECETAS" not in st.session_state:
-    st.session_state.RECETAS = {
-        "Alfajores de maicena": {
-            "rinde": 30, "tipo": "unidades",
-            "precios": {"1 Unidad": 1250.0, "Media Docena (6u)": 7500.0, "Docena (12u)": 15000.0},
-            "ingredientes": {"Harina Leudante (kg)": 0.200, "Manteca (kg)": 0.100, "Azúcar impalpable (kg)": 0.100, "Maicena (kg)": 0.300, "Dulce de Leche (kg)": 0.250, "Huevo (unidad)": 2, "Esencia de vainilla (litro)": 0.005, "Coco rallado (kg)": 0.010, "Bolsa (unidad)": 30}
-        },
-        "Budin de chocolate/marmolado": {
-            "rinde": 14, "tipo": "porciones",
-            "precios": {"Porción": 1000.0, "Entero": 12000.0},
-            "ingredientes": {"Harina Leudante (kg)": 0.300, "Toddy cacao polvo (kg)": 0.050, "Azúcar (kg)": 0.200, "Aceite (litro)": 0.100, "Huevo (unidad)": 2, "Leche (litro)": 0.175, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
-        },
-        "Budin de vainilla": {
-            "rinde": 14, "tipo": "porciones",
-            "precios": {"Porción": 1000.0, "Entero": 12000.0},
-            "ingredientes": {"Harina Leudante (kg)": 0.300, "Esencia de vainilla (litro)": 0.005, "Azúcar (kg)": 0.200, "Aceite (litro)": 0.100, "Huevo (unidad)": 2, "Leche (litro)": 0.175, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
-        },
-        "Budin de limón": {
-            "rinde": 14, "tipo": "porciones",
-            "precios": {"Porción": 1000.0, "Entero": 12000.0},
-            "ingredientes": {"Harina Leudante (kg)": 0.260, "Limon (kg)": 0.150, "Azúcar (kg)": 0.200, "Aceite (litro)": 0.120, "Huevo (unidad)": 3, "Leche (litro)": 0.175, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
-        },
-        "Budin de Naranja": {
-            "rinde": 14, "tipo": "porciones",
-            "precios": {"Porción": 1000.0, "Entero": 12000.0},
-            "ingredientes": {"Harina Leudante (kg)": 0.260, "Naranja (kg)": 0.130, "Azúcar (kg)": 0.200, "Aceite (litro)": 0.120, "Huevo (unidad)": 3, "Leche (litro)": 0.175, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
-        },
-        "Budin de banana": {
-            "rinde": 9, "tipo": "porciones",
-            "precios": {"Porción": 1000.0, "Entero": 9000.0},
-            "ingredientes": {"Harina Leudante (kg)": 0.150, "Banana (kg)": 0.200, "Azúcar (kg)": 0.180, "Aceite (litro)": 0.060, "Huevo (unidad)": 2, "Esencia de vainilla (litro)": 0.005, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
-        },
-        "Lemonies": {
-            "rinde": 4, "tipo": "porciones",
-            "precios": {"Porción": 4000.0, "Entero": 15000.0},
-            "ingredientes": {"Harina Leudante (kg)": 0.140, "Limon (kg)": 0.150, "Azúcar (kg)": 0.155, "Manteca (kg)": 0.100, "Huevo (unidad)": 3, "Azucar impalpable (kg)": 0.100, "Bolsa (unidad)": 1, "Bandeja (unidad)": 2}
-        },
-        "Chessecake": {
-            "rinde": 1, "tipo": "entero",
-            "precios": {"Entero": 45000.0},
-            "ingredientes": {"Frutos rojos (kg)": 0.500, "Manteca (kg)": 0.080, "Azúcar (kg)": 0.200, "Queso crema (kg)": 0.340, "Galletitas vainilla (kg)": 0.300, "Naranja (kg)": 0.130, "Crema de Leche (litro)": 0.110, "Huevo (unidad)": 3, "Bandeja (unidad)": 1, "Caja (unidad)": 1}
-        },
-        "Chipa": {
-            "rinde": 30, "tipo": "unidades",
-            "precios": {"Media Docena (6u)": 5000.0, "Docena (12u)": 10000.0},
-            "ingredientes": {"Huevo (unidad)": 3, "Preparado para Chipa (kg)": 0.400}
-        },
-        "Cafe chico": {
-            "rinde": 1, "tipo": "entero",
-            "precios": {"Entero": 2000.0},
-            "ingredientes": {"Cafe molido (kg)": 0.006,"Leche (litro)": 0.090, "Azúcar (kg)": 0.050, "Vaso Chico (unidad)": 1}
-        },
-        "Cafe grande": {
-            "rinde": 1, "tipo": "entero",
-            "precios": {"Entero": 3000.0},
-            "ingredientes": {"Cafe molido (kg)": 0.008,"Leche (litro)": 0.120, "Azúcar (kg)": 0.050, "Vaso Grande (unidad)": 1}
-        }
-    }
-
-def calcular_costo_receta(nombre_receta):
-    receta = st.session_state.RECETAS[nombre_receta]
-    costo_lote = sum(cant * st.session_state.INSUMOS.get(ing, 0) for ing, cant in receta["ingredientes"].items())
-    costo_unitario = costo_lote / receta["rinde"]
-    return costo_lote, costo_unitario
 
 # NAVEGACIÓN
 st.sidebar.title("🧁 Dulce Mar")
@@ -230,7 +271,6 @@ if opcion_menu == "📊 Cargar Venta Diaria":
         else:
             costo_total_venta = costo_lote * cantidad
 
-        # Si agregó budín en promo, sumamos su costo de insumos real
         if cant_budin_promo > 0 and budin_sel_promo:
             _, costo_u_budin = calcular_costo_receta(budin_sel_promo)
             costo_total_venta += (costo_u_budin * cant_budin_promo)
@@ -377,7 +417,10 @@ elif opcion_menu == "🏷️ Modificar y Crear Productos":
 
                 if st.button("💾 Guardar Nuevo Precio de Venta"):
                     st.session_state.RECETAS[prod_mod]["precios"][pres_mod] = nuevo_precio_vta
-                    st.success(f"¡Precio actualizado! **{prod_mod}** ({pres_mod}) ahora vale **${nuevo_precio_vta:,.2f}**.")
+                    # Actualizar en Supabase
+                    supabase.table("productos").update({"precios": st.session_state.RECETAS[prod_mod]["precios"]}).eq("nombre", prod_mod).execute()
+                    st.success(f"¡Precio actualizado permanentemente! **{prod_mod}** ({pres_mod}) ahora vale **${nuevo_precio_vta:,.2f}**.")
+                    st.rerun()
 
             with col_p2:
                 st.subheader("📋 Precios Actuales")
@@ -389,25 +432,23 @@ elif opcion_menu == "🏷️ Modificar y Crear Productos":
 
     with sub_tab2:
         st.subheader("➕ Agregar un Producto Nuevo con su Receta")
-        st.write("Completá los datos a continuación para registrar una nueva receta completa en el sistema.")
+        st.write("Completá los datos a continuación para registrar una nueva receta completa en la nube.")
 
         col_n1, col_n2 = st.columns(2)
         with col_n1:
             nuevo_nombre_prod = st.text_input("Nombre del producto (ej: Lemon Pie):")
-            rinde_prod = st.number_input("Rendimiento total (porciones u unidades por receta):", min_value=1, value=8, step=1, help="Ej: Si de 1 Lemon Pie entero cortás 8 porciones, colocá 8.")
+            rinde_prod = st.number_input("Rendimiento total (porciones u unidades por receta):", min_value=1, value=8, step=1)
             tipo_rinde = st.selectbox("Unidad de medida del rendimiento:", ["porciones", "unidades", "entero"])
 
         with col_n2:
-            st.markdown("**Precios de Venta al Público ($) (Ingresá los que correspondan):**")
-            p_enteros = st.number_input("Precio Entero / Tanda Completa ($):", min_value=0.0, value=0.0, step=100.0, help="Dejá en 0 si no lo vendés entero.")
-            p_porcion = st.number_input("Precio por Porción / Unidad individual ($):", min_value=0.0, value=0.0, step=50.0, help="Dejá en 0 si no vendés porción individual.")
+            st.markdown("**Precios de Venta al Público ($):**")
+            p_enteros = st.number_input("Precio Entero / Tanda Completa ($):", min_value=0.0, value=0.0, step=100.0)
+            p_porcion = st.number_input("Precio por Porción / Unidad individual ($):", min_value=0.0, value=0.0, step=50.0)
             p_media_docena = st.number_input("Precio por Media Docena (6u) ($):", min_value=0.0, value=0.0, step=100.0)
             p_docena = st.number_input("Precio por Docena (12u) ($):", min_value=0.0, value=0.0, step=100.0)
 
         st.markdown("---")
         st.subheader("🥣 Ingredientes de la Receta")
-        st.write("Seleccioná qué insumos lleva este producto y en qué cantidad por receta/tanda completa:")
-
         insumos_disponibles = list(st.session_state.INSUMOS.keys())
         ingredientes_seleccionados = st.multiselect("Seleccionar los insumos que lleva la receta:", insumos_disponibles)
         
@@ -417,20 +458,10 @@ elif opcion_menu == "🏷️ Modificar y Crear Productos":
             cols_ing = st.columns(2)
             for idx, ing in enumerate(ingredientes_seleccionados):
                 col_curr = cols_ing[idx % 2]
-                
-                # VALIDACIÓN: Si es unidad, usar entero. Si es kg/litro, usar decimales.
                 if "(unidad)" in ing.lower():
-                    cant = col_curr.number_input(
-                        f"Cantidad de '{ing}':", 
-                        min_value=1, value=1, step=1, 
-                        key=f"ing_new_{ing}"
-                    )
+                    cant = col_curr.number_input(f"Cantidad de '{ing}':", min_value=1, value=1, step=1, key=f"ing_new_{ing}")
                 else:
-                    cant = col_curr.number_input(
-                        f"Cantidad de '{ing}':", 
-                        min_value=0.001, value=0.100, step=0.010, format="%.3f", 
-                        key=f"ing_new_{ing}"
-                    )
+                    cant = col_curr.number_input(f"Cantidad de '{ing}':", min_value=0.001, value=0.100, step=0.010, format="%.3f", key=f"ing_new_{ing}")
                 dict_ingredientes_nuevo[ing] = cant
 
         if st.button("✨ Guardar Nuevo Producto Completo", use_container_width=True):
@@ -440,19 +471,25 @@ elif opcion_menu == "🏷️ Modificar y Crear Productos":
                 st.warning("Por favor, elegí al menos un ingrediente para la receta.")
             else:
                 dict_precios = {}
-                if p_enteros > 0: 
-                    dict_precios["Entero"] = float(p_enteros)
+                if p_enteros > 0: dict_precios["Entero"] = float(p_enteros)
                 if p_porcion > 0: 
                     label_p = "1 Unidad" if tipo_rinde == "unidades" else "Porción"
                     dict_precios[label_p] = float(p_porcion)
-                if p_media_docena > 0: 
-                    dict_precios["Media Docena (6u)"] = float(p_media_docena)
-                if p_docena > 0: 
-                    dict_precios["Docena (12u)"] = float(p_docena)
+                if p_media_docena > 0: dict_precios["Media Docena (6u)"] = float(p_media_docena)
+                if p_docena > 0: dict_precios["Docena (12u)"] = float(p_docena)
 
-                if not dict_precios:
-                    dict_precios["Entero"] = 0.0
+                if not dict_precios: dict_precios["Entero"] = 0.0
 
+                nuevo_registro = {
+                    "nombre": nuevo_nombre_prod.strip(),
+                    "rinde": int(rinde_prod),
+                    "tipo": tipo_rinde,
+                    "precios": dict_precios,
+                    "ingredientes": dict_ingredientes_nuevo
+                }
+                
+                # Guardar en Supabase
+                supabase.table("productos").insert(nuevo_registro).execute()
                 st.session_state.RECETAS[nuevo_nombre_prod.strip()] = {
                     "rinde": int(rinde_prod),
                     "tipo": tipo_rinde,
@@ -460,24 +497,25 @@ elif opcion_menu == "🏷️ Modificar y Crear Productos":
                     "ingredientes": dict_ingredientes_nuevo
                 }
 
-                st.success(f"🎉 ¡El producto **'{nuevo_nombre_prod}'** fue creado con éxito con sus presentaciones y receta!")
+                st.success(f"🎉 ¡El producto **'{nuevo_nombre_prod}'** fue creado y guardado permanentemente en la nube!")
                 st.rerun()
 
     with sub_tab3:
         st.subheader("🗑️ Eliminar Producto")
         if st.session_state.RECETAS:
             prod_eliminar = st.selectbox("Seleccioná el producto a eliminar:", list(st.session_state.RECETAS.keys()), key="del_prod_sel")
-            st.warning(f"⚠️ Al hacer clic en borrar, el producto **'{prod_eliminar}'** se eliminará de la lista.")
+            st.warning(f"⚠️ Al hacer clic en borrar, el producto **'{prod_eliminar}'** se eliminará para siempre.")
             if st.button("🗑️ Eliminar Producto Definitivamente"):
+                supabase.table("productos").delete().eq("nombre", prod_eliminar).execute()
                 del st.session_state.RECETAS[prod_eliminar]
-                st.success(f"El producto **'{prod_eliminar}'** fue eliminado correctamente.")
+                st.success(f"El producto **'{prod_eliminar}'** fue eliminado.")
                 st.rerun()
         else:
             st.info("No hay productos registrados para eliminar.")
 
 elif opcion_menu == "🛒 Gestor de Precios de Insumos":
     st.header("🛒 Gestor de Insumos y Materias Primas")
-    st.write("Modificá los costos cuando compres más caro, agregá o eliminá insumos.")
+    st.write("Modificá los costos cuando compres más caro, agregá o eliminá insumos de la base de datos.")
 
     col_i1, col_i2 = st.columns([2, 1])
     
@@ -491,12 +529,15 @@ elif opcion_menu == "🛒 Gestor de Precios de Insumos":
             col_b_ins1, col_b_ins2 = st.columns(2)
             with col_b_ins1:
                 if st.button("🔄 Actualizar Costo"):
+                    supabase.table("insumos").update({"precio": nuevo_precio}).eq("nombre", insumo_editar).execute()
                     st.session_state.INSUMOS[insumo_editar] = nuevo_precio
-                    st.success(f"¡Costo de **{insumo_editar}** actualizado a **${nuevo_precio:,.2f}**!")
+                    st.success(f"¡Costo de **{insumo_editar}** actualizado a **${nuevo_precio:,.2f}** en la nube!")
+                    st.rerun()
             with col_b_ins2:
                 if st.button("🗑️ Eliminar Insumo"):
+                    supabase.table("insumos").delete().eq("nombre", insumo_editar).execute()
                     del st.session_state.INSUMOS[insumo_editar]
-                    st.success(f"Insumo **'{insumo_editar}'** eliminado.")
+                    st.success(f"Insumo **'{insumo_editar}'** eliminado definitivamente.")
                     st.rerun()
 
         st.markdown("---")
@@ -505,8 +546,10 @@ elif opcion_menu == "🛒 Gestor de Precios de Insumos":
         nuevo_precio_insumo = st.number_input("Costo del insumo ($):", value=0.0, step=50.0)
         if st.button("➕ Crear Insumo"):
             if nuevo_nombre_insumo.strip() != "":
-                st.session_state.INSUMOS[nuevo_nombre_insumo.strip()] = nuevo_precio_insumo
-                st.success(f"¡Insumo **'{nuevo_nombre_insumo}'** creado con éxito!")
+                nom = nuevo_nombre_insumo.strip()
+                supabase.table("insumos").insert({"nombre": nom, "precio": nuevo_precio_insumo}).execute()
+                st.session_state.INSUMOS[nom] = nuevo_precio_insumo
+                st.success(f"¡Insumo **'{nom}'** creado con éxito en la nube!")
                 st.rerun()
             else:
                 st.warning("Escribí un nombre válido para el insumo.")
@@ -554,7 +597,7 @@ elif opcion_menu == "⚙️ Calculadora y Costo de Insumos":
                     "Presentación": pres,
                     "Precio Venta": f"${precio_vta:,.2f}",
                     "Costo Insumos": f"${c_item:,.2f}",
-                    "Ganancia Limpia": f"${ganancia_limpia:,.2f}",
+                    "Ganancia Limpia": f"${gan_limpia:,.2f}",
                     "Margen (%)": f"{m_porcentaje:.1f}%"
                 })
             st.table(pd.DataFrame(tabla_margenes))
@@ -565,7 +608,6 @@ elif opcion_menu == "⚙️ Calculadora y Costo de Insumos":
             precio_u_ing = st.session_state.INSUMOS.get(ing, 0)
             costo_total_ing = cant * precio_u_ing
             
-            # Formato entero o decimal según la unidad
             cant_str = f"{int(cant)}" if "(unidad)" in ing.lower() else f"{cant:.3f}"
             
             desglose.append({

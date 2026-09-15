@@ -682,6 +682,7 @@ with tab_productos:
 # -------------------------------------------------------------------
 with tab_insumos:
     st.header("🛒 Gestor de Insumos y Materias Primas")
+    
     col_i1, col_i2 = st.columns([2, 1])
     
     with col_i1:
@@ -689,92 +690,117 @@ with tab_insumos:
         if st.session_state.INSUMOS:
             insumo_editar = st.selectbox("Seleccioná un insumo:", list(st.session_state.INSUMOS.keys()), key="ins_edit_sel")
             precio_actual = st.session_state.INSUMOS[insumo_editar]
-            nuevo_precio = st.number_input(f"Nuevo costo de '{insumo_editar}' ($):", value=float(precio_actual), step=50.0)
+            nuevo_precio = st.number_input(f"Nuevo costo de '{insumo_editar}' ($):", value=float(precio_actual), step=50.0, key="ins_edit_val")
             
-            col_b_ins1, col_b_ins2 = st.columns(2)
-            with col_b_ins1:
-                if st.button("🔄 Actualizar Costo"):
+            if st.button("🔄 Actualizar Costo", use_container_width=True):
+                try:
                     supabase.table("insumos").update({"precio": nuevo_precio}).eq("nombre", insumo_editar).execute()
                     st.session_state.INSUMOS[insumo_editar] = nuevo_precio
                     st.success(f"Costo de **{insumo_editar}** actualizado a **${nuevo_precio:,.2f}**")
                     st.rerun()
-            with col_b_ins2:
-                if st.button("🗑️ Eliminar Insumo"):
-                    supabase.table("insumos").delete().eq("nombre", insumo_editar).execute()
-                    del st.session_state.INSUMOS[insumo_editar]
-                    st.success(f"Insumo **'{insumo_editar}'** eliminado.")
-                    st.rerun()
+                except Exception as err:
+                    st.error(f"Error al actualizar insumo: {err}")
 
         st.markdown("---")
         st.subheader("➕ Agregar Nuevo Insumo")
-        nuevo_nombre_insumo = st.text_input("Nombre del insumo:")
-        nuevo_precio_insumo = st.number_input("Costo del insumo ($):", value=0.0, step=50.0)
-        if st.button("➕ Crear Insumo"):
-            if nuevo_nombre_insumo.strip() != "":
-                nom = nuevo_nombre_insumo.strip()
-                supabase.table("insumos").insert({"nombre": nom, "precio": nuevo_precio_insumo}).execute()
-                st.session_state.INSUMOS[nom] = nuevo_precio_insumo
-                st.success(f"Insumo **'{nom}'** creado con éxito.")
-                st.rerun()
+        nuevo_insumo_nombre = st.text_input("Nombre del nuevo insumo (ej: Esencia de Coco (litro)):", key="ins_new_name")
+        nuevo_insumo_precio = st.number_input("Costo unitario / paquete ($):", min_value=0.0, value=1000.0, step=50.0, key="ins_new_val")
+        
+        if st.button("✨ Guardar Nuevo Insumo", use_container_width=True):
+            if nuevo_insumo_nombre.strip():
+                nombre_ins_limpio = nuevo_insumo_nombre.strip()
+                try:
+                    supabase.table("insumos").insert({"nombre": nombre_ins_limpio, "precio": float(nuevo_insumo_precio)}).execute()
+                    st.session_state.INSUMOS[nombre_ins_limpio] = float(nuevo_insumo_precio)
+                    st.success(f"Insumo **'{nombre_ins_limpio}'** guardado correctamente.")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"Error al guardar nuevo insumo: {err}")
+            else:
+                st.warning("Escribí un nombre válido para el insumo.")
+
+        st.markdown("---")
+        st.subheader("🗑️ Eliminar Insumo")
+        if st.session_state.INSUMOS:
+            insumo_eliminar = st.selectbox("Seleccioná un insumo para eliminar:", list(st.session_state.INSUMOS.keys()), key="ins_del_sel")
+            if st.button("🗑️ Eliminar Insumo Definitivamente"):
+                try:
+                    supabase.table("insumos").delete().eq("nombre", insumo_eliminar).execute()
+                    del st.session_state.INSUMOS[insumo_eliminar]
+                    st.success(f"Insumo **'{insumo_eliminar}'** eliminado.")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"Error al eliminar insumo: {err}")
 
     with col_i2:
         st.subheader("📋 Lista de Insumos")
-        df_ins = pd.DataFrame(list(st.session_state.INSUMOS.items()), columns=["Insumo", "Costo ($)"])
-        st.dataframe(df_ins, height=450, use_container_width=True)
+        df_insumos = pd.DataFrame([
+            {"Insumo": k, "Costo ($)": f"${v:,.2f}"} 
+            for k, v in st.session_state.INSUMOS.items()
+        ])
+        st.dataframe(df_insumos, height=600, use_container_width=True)
 
 # -------------------------------------------------------------------
-# 6. PESTAÑA: CALCULADORA Y MARGENES
+# 6. PESTAÑA: CALCULADORA RÁPIDA DE MARGENES
 # -------------------------------------------------------------------
 with tab_calc:
-    st.header("⚙️ Calculadora y Márgenes por Producto")
-    if st.session_state.RECETAS:
-        receta_seleccionada = st.selectbox("Elegí un producto:", list(st.session_state.RECETAS.keys()), key="calc_prod_sel")
-        receta = st.session_state.RECETAS[receta_seleccionada]
-        costo_lote, costo_u = calcular_costo_receta(receta_seleccionada)
-        
-        col_c1, col_c2 = st.columns(2)
-        with col_c1:
-            st.subheader("📋 Resumen de Costos")
-            st.write(f"• **Costo total del lote/receta:** ${costo_lote:,.2f}")
-            st.write(f"• **Rendimiento:** {receta['rinde']} {receta['tipo']}")
-            st.write(f"• **Costo unitario:** ${costo_u:,.2f}")
+    st.header("⚙️ Calculadora Rápida de Costos y Márgenes")
+    st.write("Analizá de forma rápida el costo unitario, de lote y los márgenes de ganancia proyectados para cualquier receta registrada.")
 
-        with col_c2:
-            st.subheader("💵 Margen por Presentación")
-            tabla_margenes = []
-            for pres, precio_vta in receta["precios"].items():
-                if "Docena (12u)" in pres:
-                    c_item = costo_u * 12
-                elif "Media Docena (6u)" in pres:
-                    c_item = costo_u * 6
-                elif "Porción" in pres or "1 Unidad" in pres:
-                    c_item = costo_u
-                else:
-                    c_item = costo_lote
-                
-                gan_limpia = precio_vta - c_item
-                m_porcentaje = (gan_limpia / precio_vta) * 100 if precio_vta > 0 else 0
-                
-                tabla_margenes.append({
-                    "Presentación": pres,
-                    "Precio Venta": f"${precio_vta:,.2f}",
-                    "Costo Insumos": f"${c_item:,.2f}",
-                    "Ganancia Limpia": f"${gan_limpia:,.2f}",
-                    "Margen (%)": f"{m_porcentaje:.1f}%"
-                })
-            st.table(pd.DataFrame(tabla_margenes))
+    receta_calc = st.selectbox("Seleccionar Producto / Receta a analizar:", list(st.session_state.RECETAS.keys()), key="calc_receta_sel")
 
-        st.subheader("🛒 Desglose de Insumos")
-        desglose = []
-        for ing, cant in receta["ingredientes"].items():
-            precio_u_ing = st.session_state.INSUMOS.get(ing, 0)
-            costo_total_ing = cant * precio_u_ing
-            cant_str = f"{int(cant)}" if "(unidad)" in ing.lower() else f"{cant:.3f}"
-            
-            desglose.append({
-                "Insumo": ing,
-                "Cantidad utilizada": cant_str,
-                "Precio Insumo ($)": f"${precio_u_ing:,.2f}",
-                "Costo en la receta ($)": f"${costo_total_ing:,.2f}"
+    if receta_calc:
+        datos_receta = st.session_state.RECETAS[receta_calc]
+        costo_lote, costo_unitario = calcular_costo_receta(receta_calc)
+
+        # Muestrario de datos clave
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Costo Total Receta (Lote)", f"${costo_lote:,.2f}")
+        c2.metric("Rendimiento Receta", f"{datos_receta['rinde']} {datos_receta['tipo']}")
+        c3.metric("Costo Unitario / Porción", f"${costo_unitario:,.2f}")
+
+        st.markdown("---")
+        st.subheader("📊 Análisis por Presentación de Venta")
+
+        lista_analisis = []
+        for pres, precio_vta in datos_receta["precios"].items():
+            if "Docena (12u)" in pres:
+                costo_pres = costo_unitario * 12
+            elif "Media Docena (6u)" in pres:
+                costo_pres = costo_unitario * 6
+            elif "Porción" in pres or "1 Unidad" in pres:
+                costo_pres = costo_unitario
+            else:
+                costo_pres = costo_lote
+
+            ganancia_pres = precio_vta - costo_pres
+            margen_porcentaje = (ganancia_pres / precio_vta * 100) if precio_vta > 0 else 0.0
+
+            lista_analisis.append({
+                "Presentación": pres,
+                "Precio Venta ($)": f"${precio_vta:,.2f}",
+                "Costo Insumos ($)": f"${costo_pres:,.2f}",
+                "Ganancia Limpia ($)": f"${ganancia_pres:,.2f}",
+                "Margen Neta (%)": f"{margen_porcentaje:.1f}%"
             })
-        st.table(pd.DataFrame(desglose))
+
+        st.dataframe(pd.DataFrame(lista_analisis), use_container_width=True)
+
+        st.markdown("---")
+        st.subheader("🥣 Detalle de Ingredientes y Costos Proporcionales")
+        
+        detalle_ing = []
+        for ing_n, cant in datos_receta["ingredientes"].items():
+            precio_unit_insumo = st.session_state.INSUMOS.get(ing_n, 0.0)
+            costo_parcial = cant * precio_unit_insumo
+            porcentaje_impacto = (costo_parcial / costo_lote * 100) if costo_lote > 0 else 0.0
+
+            detalle_ing.append({
+                "Ingrediente": ing_n,
+                "Cantidad": cant,
+                "Precio Insumo Base ($)": f"${precio_unit_insumo:,.2f}",
+                "Costo en Receta ($)": f"${costo_parcial:,.2f}",
+                "Impacto en Costo (%)": f"{porcentaje_impacto:.1f}%"
+            })
+
+        st.dataframe(pd.DataFrame(detalle_ing), use_container_width=True)

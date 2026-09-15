@@ -33,17 +33,18 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 1. BASE DE DATOS DE INSUMOS
-INSUMOS = {
-    "Harina Leudante (kg)": 1700, "Manteca (kg)": 19500, "Azúcar (kg)": 1400,
-    "Dulce de Leche (kg)": 7000, "Huevo (unidad)": 150, "Aceite (litro)": 4000,
-    "Leche (litro)": 2290, "Toddy cacao polvo (kg)": 12600, "Azucar impalpable (kg)": 4000,
-    "Maicena (kg)": 4100, "Crema de Leche (litro)": 3800, "Caja (unidad)": 2000,
-    "Frutos rojos (kg)": 16000, "Bandeja torta (unidad)": 800, "Naranja (kg)": 2000,
-    "Limon (kg)": 1500, "Queso crema (kg)": 12000, "Esencia de vainilla (litro)": 22600,
-    "Coco rallado (kg)": 43400, "Bolsa (unidad)": 32, "Bandeja (unidad)": 40,
-    "Preparado para Chipa (kg)": 14975, "Banana (kg)": 3500, "Galletitas vainilla (kg)": 12000
-}
+# 1. INSUMOS Y PRECIOS INICIALES EN SESSION_STATE (Permite edición)
+if "INSUMOS" not in st.session_state:
+    st.session_state.INSUMOS = {
+        "Harina Leudante (kg)": 1700.0, "Manteca (kg)": 19500.0, "Azúcar (kg)": 1400.0,
+        "Dulce de Leche (kg)": 7000.0, "Huevo (unidad)": 150.0, "Aceite (litro)": 4000.0,
+        "Leche (litro)": 2290.0, "Toddy cacao polvo (kg)": 12600.0, "Azucar impalpable (kg)": 4000.0,
+        "Maicena (kg)": 4100.0, "Crema de Leche (litro)": 3800.0, "Caja (unidad)": 2000.0,
+        "Frutos rojos (kg)": 16000.0, "Bandeja torta (unidad)": 800.0, "Naranja (kg)": 2000.0,
+        "Limon (kg)": 1500.0, "Queso crema (kg)": 12000.0, "Esencia de vainilla (litro)": 22600.0,
+        "Coco rallado (kg)": 43400.0, "Bolsa (unidad)": 32.0, "Bandeja (unidad)": 40.0,
+        "Preparado para Chipa (kg)": 14975.0, "Banana (kg)": 3500.0, "Galletitas vainilla (kg)": 12000.0
+    }
 
 # 2. BASE DE DATOS DE RECETAS
 RECETAS = {
@@ -96,13 +97,18 @@ RECETAS = {
 
 def calcular_costo_receta(nombre_receta):
     receta = RECETAS[nombre_receta]
-    costo_lote = sum(cant * INSUMOS.get(ing, 0) for ing, cant in receta["ingredientes"].items())
+    costo_lote = sum(cant * st.session_state.INSUMOS.get(ing, 0) for ing, cant in receta["ingredientes"].items())
     costo_unitario = costo_lote / receta["rinde"]
     return costo_lote, costo_unitario
 
 # NAVEGACIÓN
 st.sidebar.title("🧁 Dulce Mar")
-opcion_menu = st.sidebar.radio("Navegación:", ["📊 Cargar Venta Diaria", "📈 Métricas y Gráficos", "⚙️ Calculadora de Costos"])
+opcion_menu = st.sidebar.radio("Navegación:", [
+    "📊 Cargar Venta Diaria", 
+    "📈 Métricas y Gráficos", 
+    "⚙️ Calculadora y Costo de Insumos",
+    "🛒 Gestor de Precios de Insumos"
+])
 
 if opcion_menu == "📊 Cargar Venta Diaria":
     st.header("🛒 Registrar Nueva Venta")
@@ -131,24 +137,33 @@ if opcion_menu == "📊 Cargar Venta Diaria":
 
     ganancia_limpia = precio_cobrado - costo_total_venta
 
+    st.info(f"💡 **Costo estimado de insumos para esta venta:** ${costo_total_venta:,.2f} | **Ganancia Limpia:** ${ganancia_limpia:,.2f}")
+
     if st.button("💾 Guardar Venta en la Nube"):
-        registro = {
-            "fecha": str(fecha_venta),
-            "producto": prod_sel,
-            "cantidad": int(cantidad),
-            "tipo_venta": tipo_presentacion,
-            "monto_total": float(precio_cobrado),
-            "costo_total": float(costo_total_venta),
-            "ganancia_limpia": float(ganancia_limpia)
-        }
-        supabase.table("ventas").insert(registro).execute()
-        st.success("¡Venta registrada con éxito y guardada en la nube!")
+        try:
+            registro = {
+                "fecha": str(fecha_venta),
+                "producto": prod_sel,
+                "cantidad": int(cantidad),
+                "tipo_venta": tipo_presentacion,
+                "monto_total": float(precio_cobrado),
+                "costo_total": float(costo_total_venta),
+                "ganancia_limpia": float(ganancia_limpia)
+            }
+            supabase.table("ventas").insert(registro).execute()
+            st.success("¡Venta registrada con éxito y guardada en la nube!")
+        except Exception as err:
+            st.error(f"Error al guardar la venta: {err}")
 
 elif opcion_menu == "📈 Métricas y Gráficos":
     st.header("📈 Desempeño del Negocio")
     
-    respuesta = supabase.table("ventas").select("*").execute()
-    datos_ventas = respuesta.data
+    try:
+        respuesta = supabase.table("ventas").select("*").execute()
+        datos_ventas = respuesta.data
+    except Exception as err:
+        st.error(f"No se pudieron cargar los datos de Supabase. Verificá los permisos o los Secrets. Detalle: {err}")
+        datos_ventas = []
 
     if datos_ventas:
         df = pd.DataFrame(datos_ventas)
@@ -188,17 +203,83 @@ elif opcion_menu == "📈 Métricas y Gráficos":
             st.plotly_chart(fig_prod, use_container_width=True)
 
         with col_g2:
-            st.subheader("💰 Productos Más Rentables")
+            st.subheader("💰 Productos Más Rentables (Ganancia Neta Acumulada)")
             rent_ranking = df.groupby('producto')['ganancia_limpia'].sum().reset_index().sort_values(by='ganancia_limpia', ascending=False)
-            fig_rent = px.bar(rent_ranking, x='producto', y='ganancia_limpia', title="Ganancia Aportada por Producto ($)", color_discrete_sequence=['#a8dadc'])
+            fig_rent = px.bar(rent_ranking, x='producto', y='ganancia_limpia', title="Ganancia Neta Limpia Aportada ($)", color_discrete_sequence=['#a8dadc'])
             st.plotly_chart(fig_rent, use_container_width=True)
 
     else:
-        st.info("Todavía no hay ventas cargadas en la base de datos.")
+        st.info("Todavía no hay ventas cargadas en la base de datos o la tabla está vacía. ¡Cargá tu primera venta en la pestaña de la izquierda!")
 
-else:
-    st.header("⚙️ Calculadora de Costos")
+elif opcion_menu == "⚙️ Calculadora y Costo de Insumos":
+    st.header("⚙️ Calculadora de Costos y Margen por Producto")
+    
     receta_seleccionada = st.selectbox("Elegí un producto:", list(RECETAS.keys()))
+    receta = RECETAS[receta_seleccionada]
+    
     costo_lote, costo_u = calcular_costo_receta(receta_seleccionada)
-    st.write(f"• Costo total del lote: **${costo_lote:,.2f}**")
-    st.write(f"• Costo por unidad/porción: **${costo_u:,.2f}**")
+    
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        st.subheader("📋 Resumen de Costos")
+        st.write(f"• **Costo total del lote/receta:** ${costo_lote:,.2f}")
+        st.write(f"• **Rendimiento:** {receta['rinde']} {receta['tipo']}")
+        st.write(f"• **Costo unitario por {receta['tipo'][:-1] if receta['tipo'].endswith('s') else receta['tipo']}:** ${costo_u:,.2f}")
+
+    with col_c2:
+        st.subheader("💵 Margen de Ganancia Neta por Presentación")
+        tabla_margenes = []
+        for pres, precio_vta in receta["precios"].items():
+            if "Docena (12u)" in pres:
+                c_item = costo_u * 12
+            elif "Media Docena (6u)" in pres:
+                c_item = costo_u * 6
+            elif "Porción" in pres or "1 Unidad" in pres:
+                c_item = costo_u
+            else:
+                c_item = costo_lote
+            
+            gan_limpia = precio_vta - c_item
+            m_porcentaje = (gan_limpia / precio_vta) * 100 if precio_vta > 0 else 0
+            
+            tabla_margenes.append({
+                "Presentación": pres,
+                "Precio Venta": f"${precio_vta:,.2f}",
+                "Costo Insumos": f"${c_item:,.2f}",
+                "Ganancia Neta Limpia": f"${gan_limpia:,.2f}",
+                "Margen (%)": f"{m_porcentaje:.1f}%"
+            })
+        st.table(pd.DataFrame(tabla_margenes))
+
+    st.subheader("🛒 Desglose de Insumos de la Receta")
+    desglose = []
+    for ing, cant in receta["ingredientes"].items():
+        precio_u_ing = st.session_state.INSUMOS.get(ing, 0)
+        costo_total_ing = cant * precio_u_ing
+        desglose.append({
+            "Insumo": ing,
+            "Cantidad utilizada": cant,
+            "Precio Insumo ($)": f"${precio_u_ing:,.2f}",
+            "Costo en la receta ($)": f"${costo_total_ing:,.2f}"
+        })
+    st.table(pd.DataFrame(desglose))
+
+elif opcion_menu == "🛒 Gestor de Precios de Insumos":
+    st.header("🛒 Gestor y Modificador de Precios de Insumos")
+    st.write("Modificá acá los valores cuando suban o bajen los precios de la materia prima. Se recalcularán los costos de las recetas en tiempo real.")
+
+    col_i1, col_i2 = st.columns([2, 1])
+    
+    with col_i1:
+        insumo_editar = st.selectbox("Seleccioná un insumo para modificar:", list(st.session_state.INSUMOS.keys()))
+        precio_actual = st.session_state.INSUMOS[insumo_editar]
+        nuevo_precio = st.number_input(f"Nuevo precio para '{insumo_editar}' ($):", value=float(precio_actual), step=100.0)
+        
+        if st.button("🔄 Actualizar Precio de Insumo"):
+            st.session_state.INSUMOS[insumo_editar] = nuevo_precio
+            st.success(f"¡Precio de **{insumo_editar}** actualizado a **${nuevo_precio:,.2f}**!")
+
+    with col_i2:
+        st.subheader("📋 Precios Actuales")
+        df_ins = pd.DataFrame(list(st.session_state.INSUMOS.items()), columns=["Insumo", "Precio ($)"])
+        st.dataframe(df_ins, height=400, use_container_width=True)

@@ -389,24 +389,24 @@ elif opcion_menu == "🏷️ Modificar y Crear Productos":
 
         col_n1, col_n2 = st.columns(2)
         with col_n1:
-            nuevo_nombre_prod = st.text_input("Nombre del producto (ej: Pastafrola de Membrillo):")
-            rinde_prod = st.number_input("Rendimiento total por tanda/receta:", min_value=1, value=1, step=1)
+            nuevo_nombre_prod = st.text_input("Nombre del producto (ej: Lemon Pie):")
+            rinde_prod = st.number_input("Rendimiento total (porciones u unidades por receta):", min_value=1, value=8, step=1, help="Ej: Si de 1 Lemon Pie entero cortás 8 porciones, colocá 8.")
             tipo_rinde = st.selectbox("Unidad de medida del rendimiento:", ["porciones", "unidades", "entero"])
 
         with col_n2:
-            st.markdown("**Precios de Venta al Público ($):**")
-            p_enteros = st.number_input("Precio Entero / Tanda completa ($):", min_value=0.0, value=0.0, step=100.0)
-            p_porcion = st.number_input("Precio por Porción / Unidad ($):", min_value=0.0, value=0.0, step=50.0)
-            p_media_docena = st.number_input("Precio por Media Docena (opcional) ($):", min_value=0.0, value=0.0, step=100.0)
-            p_docena = st.number_input("Precio por Docena (opcional) ($):", min_value=0.0, value=0.0, step=100.0)
+            st.markdown("**Precios de Venta al Público ($) (Ingresá los que correspondan):**")
+            
+            # Ahora se permite configurar CUALQUIER combinación de precios simultáneamente
+            p_enteros = st.number_input("Precio Entero / Tanda Completa ($):", min_value=0.0, value=0.0, step=100.0, help="Dejá en 0 si no lo vendés entero.")
+            p_porcion = st.number_input("Precio por Porción / Unidad individual ($):", min_value=0.0, value=0.0, step=50.0, help="Dejá en 0 si no vendés porción individual.")
+            p_media_docena = st.number_input("Precio por Media Docena (6u) ($):", min_value=0.0, value=0.0, step=100.0)
+            p_docena = st.number_input("Precio por Docena (12u) ($):", min_value=0.0, value=0.0, step=100.0)
 
         st.markdown("---")
         st.subheader("🥣 Ingredientes de la Receta")
-        st.write("Seleccioná qué insumos lleva este producto y en qué cantidad por lote/receta completa:")
+        st.write("Seleccioná qué insumos lleva este producto y en qué cantidad por receta/tanda completa:")
 
         insumos_disponibles = list(st.session_state.INSUMOS.keys())
-        
-        # Selección múltiple de ingredientes
         ingredientes_seleccionados = st.multiselect("Seleccionar los insumos que lleva la receta:", insumos_disponibles)
         
         dict_ingredientes_nuevo = {}
@@ -424,14 +424,17 @@ elif opcion_menu == "🏷️ Modificar y Crear Productos":
             elif not dict_ingredientes_nuevo:
                 st.warning("Por favor, elegí al menos un ingrediente para la receta.")
             else:
-                # Armamos el diccionario de precios de venta
+                # Armamos el diccionario dinámico de precios de venta
                 dict_precios = {}
-                if p_enteros > 0: dict_precios["Entero"] = p_enteros
+                if p_enteros > 0: 
+                    dict_precios["Entero"] = float(p_enteros)
                 if p_porcion > 0: 
                     label_p = "1 Unidad" if tipo_rinde == "unidades" else "Porción"
-                    dict_precios[label_p] = p_porcion
-                if p_media_docena > 0: dict_precios["Media Docena (6u)"] = p_media_docena
-                if p_docena > 0: dict_precios["Docena (12u)"] = p_docena
+                    dict_precios[label_p] = float(p_porcion)
+                if p_media_docena > 0: 
+                    dict_precios["Media Docena (6u)"] = float(p_media_docena)
+                if p_docena > 0: 
+                    dict_precios["Docena (12u)"] = float(p_docena)
 
                 if not dict_precios:
                     dict_precios["Entero"] = 0.0
@@ -444,7 +447,7 @@ elif opcion_menu == "🏷️ Modificar y Crear Productos":
                     "ingredientes": dict_ingredientes_nuevo
                 }
 
-                st.success(f"🎉 ¡El producto **'{nuevo_nombre_prod}'** fue creado con éxito con su receta e insumos!")
+                st.success(f"🎉 ¡El producto **'{nuevo_nombre_prod}'** fue creado con éxito con sus presentaciones y receta!")
                 st.rerun()
 
 elif opcion_menu == "🛒 Gestor de Precios de Insumos":

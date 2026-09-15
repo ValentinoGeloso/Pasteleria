@@ -23,59 +23,69 @@ try:
 except Exception as e:
     st.error("Error al conectar con la base de datos. Verificá los Secrets de Streamlit.")
 
-# Estilo visual personalizado - Celeste Pastel
+# Estilo visual adaptado al modo oscuro
 st.markdown("""
     <style>
-    .main { background-color: #fafbfd; }
-    
     /* Títulos en Celeste Pastel */
-    h1, h2, h3, .css-10tr800, .css-1v0mb0e { 
-        color: #5c9ead !important; 
+    h1, h2, h3 { 
+        color: #72b3c2 !important; 
         font-family: 'Segoe UI', 'Helvetica Neue', sans-serif;
         font-weight: 700;
     }
     
-    /* Botón general */
+    /* Botón Guardar */
     .stButton>button { 
-        background-color: #72b3c2; 
+        background-color: #5c9ead; 
         color: white; 
         border-radius: 8px; 
         border: none; 
         font-weight: 600;
-        padding: 0.5rem 1rem;
+        font-size: 16px;
+        padding: 0.6rem 1rem;
     }
     .stButton>button:hover { 
         background-color: #4a8b9a; 
         color: white; 
     }
 
-    /* Tarjeta resumen de venta en celeste pastel */
+    /* Tarjeta resumen en Celeste Pastel Oscuro/Agradable */
     .card-resumen {
-        background-color: #e8f4f8;
+        background-color: #1e2d38;
         border-radius: 12px;
-        padding: 20px;
-        border: 1px solid #cce5ed;
-        box-shadow: 0 2px 8px rgba(92, 158, 173, 0.1);
+        padding: 22px;
+        border: 1px solid #3a5366;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         margin-top: 15px;
         margin-bottom: 20px;
     }
     .card-title {
-        font-size: 13px;
-        color: #4a727d;
+        font-size: 14px;
+        color: #93c5fd;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.5px;
-        margin-bottom: 5px;
+        margin-bottom: 6px;
     }
     .card-value-costo {
-        font-size: 24px;
+        font-size: 26px;
         font-weight: bold;
-        color: #d9534f;
+        color: #f87171;
     }
     .card-value-ganancia {
-        font-size: 24px;
+        font-size: 26px;
         font-weight: bold;
-        color: #2e7d32;
+        color: #4ade80;
+    }
+
+    /* Estilo para las filas e historial de ventas */
+    .venta-item {
+        background-color: #1a232a;
+        padding: 14px 18px;
+        border-radius: 8px;
+        border-left: 4px solid #72b3c2;
+        margin-bottom: 10px;
+        color: #e0f2fe;
+        font-size: 16px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -184,17 +194,17 @@ if opcion_menu == "📊 Cargar Venta Diaria":
 
     ganancia_limpia = precio_cobrado - costo_total_venta
 
-    # TARJETA CELESTE PASTEL
+    # TARJETA RESUMEN EN MODO OSCURO
     st.markdown(f"""
         <div class="card-resumen">
             <div style="display: flex; justify-content: space-around; text-align: center; align-items: center;">
                 <div>
-                    <div class="card-title">📦 Costo Estimado Insumos</div>
+                    <div class="card-title">📦 COSTO ESTIMADO INSUMOS</div>
                     <div class="card-value-costo">${costo_total_venta:,.2f}</div>
                 </div>
-                <div style="border-left: 2px solid #b8dae4; height: 45px;"></div>
+                <div style="border-left: 2px solid #3a5366; height: 45px;"></div>
                 <div>
-                    <div class="card-title">💵 Ganancia Limpia Estimada</div>
+                    <div class="card-title">💵 GANANCIA LIMPIA ESTIMADA</div>
                     <div class="card-value-ganancia">${ganancia_limpia:,.2f}</div>
                 </div>
             </div>
@@ -234,15 +244,20 @@ if opcion_menu == "📊 Cargar Venta Diaria":
         for idx, row in df_ventas.iterrows():
             col_info, col_btn = st.columns([5, 1])
             with col_info:
-                st.write(f"📅 **{row.get('fecha')}** | **{row.get('producto')}** ({row.get('tipo_venta')}) x{row.get('cantidad')} — Total: **${row.get('monto_total'):,.2f}** | Ganancia: **${row.get('ganancia_limpia'):,.2f}**")
+                st.markdown(f"""
+                <div class="venta-item">
+                    📅 <b>{row.get('fecha')}</b> | <b>{row.get('producto')}</b> ({row.get('tipo_venta')}) x{row.get('cantidad')}<br>
+                    <span style="color: #93c5fd;">Total: <b>${row.get('monto_total'):,.2f}</b></span> | 
+                    <span style="color: #4ade80;">Ganancia: <b>${row.get('ganancia_limpia'):,.2f}</b></span>
+                </div>
+                """, unsafe_allow_html=True)
             with col_btn:
                 if st.button("🗑️ Borrar", key=f"del_{row.get('id')}"):
                     supabase.table("ventas").delete().eq("id", row.get("id")).execute()
                     st.success("Venta eliminada.")
                     st.rerun()
-            st.divider()
     else:
-        st.info("Aún no hay ventas registradas en el historial.")
+        st.markdown("<p style='color: #e0f2fe; font-size: 18px; font-weight: 500; margin-top: 10px;'>✨ Aún no hay ventas registradas en el historial. ¡Cargá tu primera venta arriba!</p>", unsafe_allow_html=True)
 
 elif opcion_menu == "📈 Métricas y Gráficos":
     st.header("📈 Desempeño del Negocio")
@@ -280,7 +295,7 @@ elif opcion_menu == "📈 Métricas y Gráficos":
         fig_mes = px.bar(ventas_mensuales, x='Mes_Año', y='ganancia_limpia', 
                          title="Ganancia Limpia por Mes ($)",
                          labels={'Mes_Año': 'Mes', 'ganancia_limpia': 'Ganancia ($)'},
-                         color_discrete_sequence=['#5c9ead'])
+                         color_discrete_sequence=['#72b3c2'])
         st.plotly_chart(fig_mes, use_container_width=True)
 
         col_g1, col_g2 = st.columns(2)
@@ -294,11 +309,11 @@ elif opcion_menu == "📈 Métricas y Gráficos":
         with col_g2:
             st.subheader("💰 Productos Más Rentables (Ganancia Neta Acumulada)")
             rent_ranking = df.groupby('producto')['ganancia_limpia'].sum().reset_index().sort_values(by='ganancia_limpia', ascending=False)
-            fig_rent = px.bar(rent_ranking, x='producto', y='ganancia_limpia', title="Ganancia Neta Limpia Aportada ($)", color_discrete_sequence=['#72b3c2'])
+            fig_rent = px.bar(rent_ranking, x='producto', y='ganancia_limpia', title="Ganancia Neta Limpia Aportada ($)", color_discrete_sequence=['#5c9ead'])
             st.plotly_chart(fig_rent, use_container_width=True)
 
     else:
-        st.info("Todavía no hay ventas cargadas en la base de datos o la tabla está vacía. ¡Cargá tu primera venta en la pestaña de la izquierda!")
+        st.markdown("<p style='color: #e0f2fe; font-size: 18px; font-weight: 500;'>Todavía no hay ventas cargadas en la base de datos o la tabla está vacía. ¡Cargá tu primera venta en la pestaña de la izquierda!</p>", unsafe_allow_html=True)
 
 elif opcion_menu == "⚙️ Calculadora y Costo de Insumos":
     st.header("⚙️ Calculadora de Costos y Margen por Producto")

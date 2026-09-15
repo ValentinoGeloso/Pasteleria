@@ -147,7 +147,7 @@ def calcular_costo_receta(nombre_receta):
     costo_unitario = costo_lote / receta["rinde"]
     return costo_lote, costo_unitario
 
-# Estilos CSS táctiles optimizados (Bloqueo de teclado en selectbox)
+# Estilos CSS táctiles optimizados + Script de desactivación de teclado móvil
 st.markdown("""
     <style>
     .stApp {
@@ -197,12 +197,23 @@ st.markdown("""
         color: #12181f !important;
     }
     
-    /* DESACTIVAR TECLADO TÁCTIL EN SELECTBOX */
+    /* BLOQUEO DEL TECLADO VIRTUAL EN SELECTBOX */
     div[data-baseweb="select"] input {
-        aria-autocomplete: none !important;
-        pointer-events: none !important;
+        inputmode: none !important;
+        user-select: none !important;
+        -webkit-user-select: none !important;
     }
     </style>
+
+    <script>
+    // Inhabilitar entrada de texto al enfocar selectores en celulares
+    document.addEventListener('focusin', function(e) {
+        if (e.target.tagName === 'INPUT' && e.target.closest('div[data-baseweb="select"]')) {
+            e.target.setAttribute('readonly', 'readonly');
+            e.target.setAttribute('inputmode', 'none');
+        }
+    });
+    </script>
 """, unsafe_allow_html=True)
 
 # BANNER SUPERIOR DE LA APP
@@ -222,7 +233,7 @@ tab_ventas, tab_metricas, tab_productos, tab_insumos = st.tabs([
 ])
 
 # -------------------------------------------------------------------
-# 1. PESTAÑA: REGISTRAR VENTA (DESPLEGABLE UNICO TÁCTIL SIN TECLADO)
+# 1. PESTAÑA: REGISTRAR VENTA (DESPLEGABLE TÁCTIL SIN TECLADO)
 # -------------------------------------------------------------------
 with tab_ventas:
     st.subheader("🛒 Registro de Venta")
@@ -230,7 +241,7 @@ with tab_ventas:
     
     lista_productos = list(st.session_state.RECETAS.keys())
     
-    # Selector desplegable compacto que al tocar abre la lista sin desplegar teclado
+    # Selector de productos en 1 sola fila táctil limpia
     prod_sel = st.selectbox("Seleccionar Producto:", lista_productos, key="select_prod_tactil")
     
     datos_prod = st.session_state.RECETAS[prod_sel]

@@ -175,7 +175,7 @@ st.sidebar.title("🧁 Dulce Mar")
 opcion_menu = st.sidebar.radio("Navegación:", [
     "📊 Cargar Venta Diaria", 
     "📈 Métricas y Gráficos", 
-    "🏷️ Modificar Precios de Productos",
+    "🏷️ Modificar y Crear Productos",
     "🛒 Gestor de Precios de Insumos",
     "⚙️ Calculadora y Costo de Insumos"
 ])
@@ -301,7 +301,7 @@ if opcion_menu == "📊 Cargar Venta Diaria":
                     st.success("Venta eliminada.")
                     st.rerun()
     else:
-        st.markdown("<p style='color: #e0f2fe; font-size: 18px;'>✨ Aún no hay ventas registradas.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='color: #e0f2fe;'>✨ Aún no hay ventas registradas.</p>", unsafe_allow_html=True)
 
 elif opcion_menu == "📈 Métricas y Gráficos":
     st.header("📈 Desempeño del Negocio")
@@ -354,31 +354,98 @@ elif opcion_menu == "📈 Métricas y Gráficos":
     else:
         st.markdown("<p style='color: #e0f2fe;'>Todavía no hay ventas cargadas.</p>", unsafe_allow_html=True)
 
-elif opcion_menu == "🏷️ Modificar Precios de Productos":
-    st.header("🏷️ Cambiar Precio de Venta al Público")
-    st.write("Acá podés actualizar fácilmente cuánto cobrás cada producto o presentación cuando hay un aumento.")
+elif opcion_menu == "🏷️ Modificar y Crear Productos":
+    st.header("🏷️ Gestor de Productos y Recetas")
+    
+    sub_tab1, sub_tab2 = st.tabs(["✏️ Modificar Precios de Venta", "➕ Crear Nuevo Producto y Receta"])
 
-    col_p1, col_p2 = st.columns([2, 1])
+    with sub_tab1:
+        st.write("Acá podés actualizar los precios de venta al público de tus productos actuales.")
+        col_p1, col_p2 = st.columns([2, 1])
 
-    with col_p1:
-        prod_mod = st.selectbox("Seleccioná un Producto:", list(st.session_state.RECETAS.keys()))
-        pres_dict = st.session_state.RECETAS[prod_mod]["precios"]
-        pres_mod = st.selectbox("Seleccioná la Presentación:", list(pres_dict.keys()))
+        with col_p1:
+            prod_mod = st.selectbox("Seleccioná un Producto:", list(st.session_state.RECETAS.keys()))
+            pres_dict = st.session_state.RECETAS[prod_mod]["precios"]
+            pres_mod = st.selectbox("Seleccioná la Presentación:", list(pres_dict.keys()))
+            
+            precio_actual_vta = pres_dict[pres_mod]
+            nuevo_precio_vta = st.number_input(f"Nuevo precio para '{prod_mod}' ({pres_mod}) ($):", value=float(precio_actual_vta), step=100.0)
+
+            if st.button("💾 Guardar Nuevo Precio de Venta"):
+                st.session_state.RECETAS[prod_mod]["precios"][pres_mod] = nuevo_precio_vta
+                st.success(f"¡Precio actualizado! **{prod_mod}** ({pres_mod}) ahora vale **${nuevo_precio_vta:,.2f}**.")
+
+        with col_p2:
+            st.subheader("📋 Precios Actuales")
+            lista_precios_resumen = []
+            for p_name, p_data in st.session_state.RECETAS.items():
+                for pres_name, p_val in p_data["precios"].items():
+                    lista_precios_resumen.append({"Producto": p_name, "Presentación": pres_name, "Precio ($)": f"${p_val:,.2f}"})
+            st.dataframe(pd.DataFrame(lista_precios_resumen), height=400, use_container_width=True)
+
+    with sub_tab2:
+        st.subheader("➕ Agregar un Producto Nuevo con su Receta")
+        st.write("Completá los datos a continuación para registrar una nueva receta completa en el sistema.")
+
+        col_n1, col_n2 = st.columns(2)
+        with col_n1:
+            nuevo_nombre_prod = st.text_input("Nombre del producto (ej: Pastafrola de Membrillo):")
+            rinde_prod = st.number_input("Rendimiento total por tanda/receta:", min_value=1, value=1, step=1)
+            tipo_rinde = st.selectbox("Unidad de medida del rendimiento:", ["porciones", "unidades", "entero"])
+
+        with col_n2:
+            st.markdown("**Precios de Venta al Público ($):**")
+            p_enteros = st.number_input("Precio Entero / Tanda completa ($):", min_value=0.0, value=0.0, step=100.0)
+            p_porcion = st.number_input("Precio por Porción / Unidad ($):", min_value=0.0, value=0.0, step=50.0)
+            p_media_docena = st.number_input("Precio por Media Docena (opcional) ($):", min_value=0.0, value=0.0, step=100.0)
+            p_docena = st.number_input("Precio por Docena (opcional) ($):", min_value=0.0, value=0.0, step=100.0)
+
+        st.markdown("---")
+        st.subheader("🥣 Ingredientes de la Receta")
+        st.write("Seleccioná qué insumos lleva este producto y en qué cantidad por lote/receta completa:")
+
+        insumos_disponibles = list(st.session_state.INSUMOS.keys())
         
-        precio_actual_vta = pres_dict[pres_mod]
-        nuevo_precio_vta = st.number_input(f"Nuevo precio para '{prod_mod}' ({pres_mod}) ($):", value=float(precio_actual_vta), step=100.0)
+        # Selección múltiple de ingredientes
+        ingredientes_seleccionados = st.multiselect("Seleccionar los insumos que lleva la receta:", insumos_disponibles)
+        
+        dict_ingredientes_nuevo = {}
+        if ingredientes_seleccionados:
+            st.write("Ingresá la cantidad necesaria de cada ingrediente por receta completa:")
+            cols_ing = st.columns(2)
+            for idx, ing in enumerate(ingredientes_seleccionados):
+                col_curr = cols_ing[idx % 2]
+                cant = col_curr.number_input(f"Cantidad de '{ing}':", min_value=0.001, value=0.100, step=0.010, format="%.3f", key=f"ing_new_{ing}")
+                dict_ingredientes_nuevo[ing] = cant
 
-        if st.button("💾 Guardar Nuevo Precio de Venta"):
-            st.session_state.RECETAS[prod_mod]["precios"][pres_mod] = nuevo_precio_vta
-            st.success(f"¡Precio actualizado! **{prod_mod}** ({pres_mod}) ahora vale **${nuevo_precio_vta:,.2f}**.")
+        if st.button("✨ Guardar Nuevo Producto Completo", use_container_width=True):
+            if not nuevo_nombre_prod.strip():
+                st.warning("Por favor, escribí un nombre válido para el producto.")
+            elif not dict_ingredientes_nuevo:
+                st.warning("Por favor, elegí al menos un ingrediente para la receta.")
+            else:
+                # Armamos el diccionario de precios de venta
+                dict_precios = {}
+                if p_enteros > 0: dict_precios["Entero"] = p_enteros
+                if p_porcion > 0: 
+                    label_p = "1 Unidad" if tipo_rinde == "unidades" else "Porción"
+                    dict_precios[label_p] = p_porcion
+                if p_media_docena > 0: dict_precios["Media Docena (6u)"] = p_media_docena
+                if p_docena > 0: dict_precios["Docena (12u)"] = p_docena
 
-    with col_p2:
-        st.subheader("📋 Precios Actuales de Venta")
-        lista_precios_resumen = []
-        for p_name, p_data in st.session_state.RECETAS.items():
-            for pres_name, p_val in p_data["precios"].items():
-                lista_precios_resumen.append({"Producto": p_name, "Presentación": pres_name, "Precio ($)": f"${p_val:,.2f}"})
-        st.dataframe(pd.DataFrame(lista_precios_resumen), height=450, use_container_width=True)
+                if not dict_precios:
+                    dict_precios["Entero"] = 0.0
+
+                # Guardamos en session_state
+                st.session_state.RECETAS[nuevo_nombre_prod.strip()] = {
+                    "rinde": int(rinde_prod),
+                    "tipo": tipo_rinde,
+                    "precios": dict_precios,
+                    "ingredientes": dict_ingredientes_nuevo
+                }
+
+                st.success(f"🎉 ¡El producto **'{nuevo_nombre_prod}'** fue creado con éxito con su receta e insumos!")
+                st.rerun()
 
 elif opcion_menu == "🛒 Gestor de Precios de Insumos":
     st.header("🛒 Gestor de Insumos y Materias Primas")

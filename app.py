@@ -23,15 +23,21 @@ try:
 except Exception as e:
     st.error("Error al conectar con la base de datos. Verificá los Secrets de Streamlit.")
 
-# Estilo visual personalizado
+# Estilo visual personalizado - Celeste Pastel
 st.markdown("""
     <style>
-    .main { background-color: #f8f9fa; }
-    h1, h2, h3 { color: #2c3e50 !important; font-family: 'Segoe UI', sans-serif; }
+    .main { background-color: #fafbfd; }
+    
+    /* Títulos en Celeste Pastel */
+    h1, h2, h3, .css-10tr800, .css-1v0mb0e { 
+        color: #5c9ead !important; 
+        font-family: 'Segoe UI', 'Helvetica Neue', sans-serif;
+        font-weight: 700;
+    }
     
     /* Botón general */
     .stButton>button { 
-        background-color: #5c9ead; 
+        background-color: #72b3c2; 
         color: white; 
         border-radius: 8px; 
         border: none; 
@@ -39,36 +45,37 @@ st.markdown("""
         padding: 0.5rem 1rem;
     }
     .stButton>button:hover { 
-        background-color: #3b6e7a; 
+        background-color: #4a8b9a; 
         color: white; 
     }
 
-    /* Targeta resumen de venta personalizada */
+    /* Tarjeta resumen de venta en celeste pastel */
     .card-resumen {
-        background-color: #ffffff;
+        background-color: #e8f4f8;
         border-radius: 12px;
         padding: 20px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-        border-left: 6px solid #5c9ead;
+        border: 1px solid #cce5ed;
+        box-shadow: 0 2px 8px rgba(92, 158, 173, 0.1);
         margin-top: 15px;
         margin-bottom: 20px;
     }
     .card-title {
-        font-size: 14px;
-        color: #7f8c8d;
-        font-weight: bold;
+        font-size: 13px;
+        color: #4a727d;
+        font-weight: 700;
         text-transform: uppercase;
+        letter-spacing: 0.5px;
         margin-bottom: 5px;
     }
     .card-value-costo {
         font-size: 24px;
         font-weight: bold;
-        color: #e74c3c;
+        color: #d9534f;
     }
     .card-value-ganancia {
         font-size: 24px;
         font-weight: bold;
-        color: #27ae60;
+        color: #2e7d32;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -177,15 +184,15 @@ if opcion_menu == "📊 Cargar Venta Diaria":
 
     ganancia_limpia = precio_cobrado - costo_total_venta
 
-    # --- NUEVO DISEÑO VISUAL PARA EL RESUMEN DE MARGEN ---
+    # TARJETA CELESTE PASTEL
     st.markdown(f"""
         <div class="card-resumen">
-            <div style="display: flex; justify-content: space-around; text-align: center;">
+            <div style="display: flex; justify-content: space-around; text-align: center; align-items: center;">
                 <div>
                     <div class="card-title">📦 Costo Estimado Insumos</div>
                     <div class="card-value-costo">${costo_total_venta:,.2f}</div>
                 </div>
-                <div style="border-left: 1px solid #e0e0e0; height: 50px;"></div>
+                <div style="border-left: 2px solid #b8dae4; height: 45px;"></div>
                 <div>
                     <div class="card-title">💵 Ganancia Limpia Estimada</div>
                     <div class="card-value-ganancia">${ganancia_limpia:,.2f}</div>
@@ -214,7 +221,6 @@ if opcion_menu == "📊 Cargar Venta Diaria":
     st.markdown("---")
     st.subheader("📋 Historial de Ventas Registradas")
 
-    # Búsqueda universal sin depender exclusivamente de created_at
     try:
         respuesta = supabase.table("ventas").select("*").execute()
         datos_ventas = respuesta.data
@@ -222,7 +228,6 @@ if opcion_menu == "📊 Cargar Venta Diaria":
         datos_ventas = []
 
     if datos_ventas:
-        # Ordenamos localmente por fecha (de más reciente a más vieja)
         df_ventas = pd.DataFrame(datos_ventas)
         df_ventas = df_ventas.sort_values(by="fecha", ascending=False)
         
@@ -289,7 +294,7 @@ elif opcion_menu == "📈 Métricas y Gráficos":
         with col_g2:
             st.subheader("💰 Productos Más Rentables (Ganancia Neta Acumulada)")
             rent_ranking = df.groupby('producto')['ganancia_limpia'].sum().reset_index().sort_values(by='ganancia_limpia', ascending=False)
-            fig_rent = px.bar(rent_ranking, x='producto', y='ganancia_limpia', title="Ganancia Neta Limpia Aportada ($)", color_discrete_sequence=['#a8dadc'])
+            fig_rent = px.bar(rent_ranking, x='producto', y='ganancia_limpia', title="Ganancia Neta Limpia Aportada ($)", color_discrete_sequence=['#72b3c2'])
             st.plotly_chart(fig_rent, use_container_width=True)
 
     else:

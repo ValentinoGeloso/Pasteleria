@@ -153,12 +153,12 @@ RECETAS = {
     "Cafe chico": {
         "rinde": 1, "tipo": "entero",
         "precios": {"Entero": 2000.0},
-        "ingredientes": {"Cafe molido (kg)": 0.006,"leche(litro)": 0.090, "Azúcar (kg)": 0.050, "Vaso Chico (unidad)": 1}
+        "ingredientes": {"Cafe molido (kg)": 0.006,"Leche (litro)": 0.090, "Azúcar (kg)": 0.050, "Vaso Chico (unidad)": 1}
     },
     "Cafe grande": {
         "rinde": 1, "tipo": "entero",
         "precios": {"Entero": 3000.0},
-        "ingredientes": {"Cafe molido (kg)": 0.008,"leche(litro)": 0.120, "Azúcar (kg)": 0.050, "Vaso Grande (unidad)": 1}
+        "ingredientes": {"Cafe molido (kg)": 0.008,"Leche (litro)": 0.120, "Azúcar (kg)": 0.050, "Vaso Grande (unidad)": 1}
     }
 }
 
@@ -189,8 +189,30 @@ if opcion_menu == "📊 Cargar Venta Diaria":
     with col2:
         tipo_presentacion = st.selectbox("Presentación:", list(datos_prod["precios"].keys()))
         cantidad = st.number_input("Cantidad vendida:", min_value=1, value=1, step=1)
-        precio_cobrado = st.number_input("Precio Total Cobrado ($):", value=float(datos_prod["precios"][tipo_presentacion] * cantidad))
+        
+        # PROMO PROMO CAFÉ + BUDÍN (SI ES CAFÉ CHICO O GRANDE)
+        cant_budin_promo = 0
+        budin_sel_promo = None
+        precio_extra_budin = 0.0
+        
+        if "Cafe" in prod_sel:
+            st.markdown("---")
+            agregar_promo = st.checkbox("☕ Promo: ¡Agregar porción de Budín a $750!")
+            if agregar_promo:
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    budines_disponibles = [p for p in RECETAS.keys() if "Budin" in p]
+                    budin_sel_promo = st.selectbox("Gusto del budín:", budines_disponibles)
+                with col_b2:
+                    cant_budin_promo = st.number_input("Porciones de budín promo:", min_value=1, value=1, step=1)
+                
+                precio_extra_budin = cant_budin_promo * 750.0
 
+        precio_base = float(datos_prod["precios"][tipo_presentacion] * cantidad)
+        precio_total_sugerido = precio_base + precio_extra_budin
+        precio_cobrado = st.number_input("Precio Total Cobrado ($):", value=precio_total_sugerido)
+
+    # CÁLCULO DE COSTOS
     costo_lote, costo_u = calcular_costo_receta(prod_sel)
     
     if "Docena (12u)" in tipo_presentacion:
@@ -201,6 +223,11 @@ if opcion_menu == "📊 Cargar Venta Diaria":
         costo_total_venta = costo_u * cantidad
     else:
         costo_total_venta = costo_lote * cantidad
+
+    # Si agregó budín en promo, sumamos su costo de insumos real
+    if cant_budin_promo > 0 and budin_sel_promo:
+        _, costo_u_budin = calcular_costo_receta(budin_sel_promo)
+        costo_total_venta += (costo_u_budin * cant_budin_promo)
 
     ganancia_limpia = precio_cobrado - costo_total_venta
 
@@ -223,11 +250,17 @@ if opcion_menu == "📊 Cargar Venta Diaria":
 
     if st.button("💾 Guardar Venta en la Nube", use_container_width=True):
         try:
+            # Armamos el detalle de la venta si incluyó la promo de budín
+            presentacion_final = tipo_presentacion
+            if cant_budin_promo > 0 and budin_sel_promo:
+                gusto_corto = budin_sel_promo.replace("Budin de ", "").replace("Budin ", "")
+                presentacion_final += f" + {cant_budin_promo}x Budín {gusto_corto} (Promo $750)"
+
             registro = {
                 "fecha": str(fecha_venta),
                 "producto": prod_sel,
                 "cantidad": int(cantidad),
-                "tipo_venta": tipo_presentacion,
+                "tipo_venta": presentacion_final,
                 "monto_total": float(precio_cobrado),
                 "costo_total": float(costo_total_venta),
                 "ganancia_limpia": float(ganancia_limpia)

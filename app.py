@@ -141,13 +141,16 @@ if "INSUMOS" not in st.session_state:
 if "RECETAS" not in st.session_state:
     st.session_state.RECETAS = obtener_recetas()
 
+if "producto_seleccionado_pos" not in st.session_state:
+    st.session_state.producto_seleccionado_pos = list(st.session_state.RECETAS.keys())[0]
+
 def calcular_costo_receta(nombre_receta):
     receta = st.session_state.RECETAS[nombre_receta]
     costo_lote = sum(cant * st.session_state.INSUMOS.get(ing, 0) for ing, cant in receta["ingredientes"].items())
     costo_unitario = costo_lote / receta["rinde"]
     return costo_lote, costo_unitario
 
-# Estilos CSS táctiles optimizados + Script de desactivación de teclado móvil
+# Estilos CSS generales
 st.markdown("""
     <style>
     .stApp {
@@ -196,24 +199,7 @@ st.markdown("""
         background-color: #72b3c2 !important;
         color: #12181f !important;
     }
-    
-    /* BLOQUEO DEL TECLADO VIRTUAL EN SELECTBOX */
-    div[data-baseweb="select"] input {
-        inputmode: none !important;
-        user-select: none !important;
-        -webkit-user-select: none !important;
-    }
     </style>
-
-    <script>
-    // Inhabilitar entrada de texto al enfocar selectores en celulares
-    document.addEventListener('focusin', function(e) {
-        if (e.target.tagName === 'INPUT' && e.target.closest('div[data-baseweb="select"]')) {
-            e.target.setAttribute('readonly', 'readonly');
-            e.target.setAttribute('inputmode', 'none');
-        }
-    });
-    </script>
 """, unsafe_allow_html=True)
 
 # BANNER SUPERIOR DE LA APP
@@ -233,20 +219,33 @@ tab_ventas, tab_metricas, tab_productos, tab_insumos = st.tabs([
 ])
 
 # -------------------------------------------------------------------
-# 1. PESTAÑA: REGISTRAR VENTA (DESPLEGABLE TÁCTIL SIN TECLADO)
+# 1. PESTAÑA: REGISTRAR VENTA (GRILLA TÁCTIL 100% LIBRE DE TECLADO)
 # -------------------------------------------------------------------
 with tab_ventas:
     st.subheader("🛒 Registro de Venta")
     fecha_venta = st.date_input("Fecha:", datetime.now(), key="trad_fecha")
     
-    lista_productos = list(st.session_state.RECETAS.keys())
+    st.markdown("<p style='font-size: 13px; color: #a0aec0; margin-bottom: 5px;'>Seleccioná el producto tocando un botón:</p>", unsafe_allow_html=True)
     
-    # Selector de productos en 1 sola fila táctil limpia
-    prod_sel = st.selectbox("Seleccionar Producto:", lista_productos, key="select_prod_tactil")
+    # Grilla de botones táctiles para elegir el producto sin abrir teclados
+    lista_productos = list(st.session_state.RECETAS.keys())
+    cols_grid = st.columns(2)
+    for i, prod in enumerate(lista_productos):
+        col_actual = cols_grid[i % 2]
+        is_selected = (st.session_state.producto_seleccionado_pos == prod)
+        btn_type = "primary" if is_selected else "secondary"
+        if col_actual.button(f"{'👉 ' if is_selected else ''}{prod}", key=f"btn_prod_{i}", use_container_width=True, type=btn_type):
+            st.session_state.producto_seleccionado_pos = prod
+            st.rerun()
+
+    prod_sel = st.session_state.producto_seleccionado_pos
+    st.markdown(f"<div style='background-color: #1a232e; padding: 8px 12px; border-radius: 6px; margin: 10px 0; border: 1px solid #72b3c2; font-size: 14px;'>Producto activo: <b>{prod_sel}</b></div>", unsafe_allow_html=True)
     
     datos_prod = st.session_state.RECETAS[prod_sel]
     
-    tipo_presentacion = st.selectbox("Presentación:", list(datos_prod["precios"].keys()), key="select_pres_tactil")
+    # Selector secundario de presentación (con radio horizontal o botones para evitar inputs de texto)
+    opciones_presentacion = list(datos_prod["precios"].keys())
+    tipo_presentacion = st.radio("Presentación:", opciones_presentacion, horizontal=True, key="radio_presentacion_pos")
     
     col_c1, col_c2 = st.columns(2)
     with col_c1:

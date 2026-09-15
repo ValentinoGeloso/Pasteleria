@@ -6,7 +6,7 @@ from supabase import create_client, Client
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Dulce Mar - App Pos", 
+    page_title="Dulce Mar - App Pasteleria", 
     page_icon="🧁",
     layout="wide",
     initial_sidebar_state="collapsed"

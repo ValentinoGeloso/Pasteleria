@@ -6,7 +6,7 @@ from supabase import create_client, Client
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Dulce Mar - App Pastelería",
+    page_title="Dulce Mar - App Pos", 
     page_icon="🧁",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -206,7 +206,7 @@ st.markdown("""
 st.markdown("""
     <div class="brand-header">
         <h1>🧁 DULCE MAR</h1>
-        <p>Sistema de Gestión y Ventas para Pastelería</p>
+        <p>Sistema POS de Gestión y Ventas</p>
     </div>
 """, unsafe_allow_html=True)
 
@@ -243,7 +243,6 @@ with tab_ventas:
     
     datos_prod = st.session_state.RECETAS[prod_sel]
     
-    # Selector secundario de presentación (con radio horizontal o botones para evitar inputs de texto)
     opciones_presentacion = list(datos_prod["precios"].keys())
     tipo_presentacion = st.radio("Presentación:", opciones_presentacion, horizontal=True, key="radio_presentacion_pos")
     
@@ -354,7 +353,7 @@ with tab_ventas:
         st.info("✨ No hay ventas registradas aún.")
 
 # -------------------------------------------------------------------
-# 2. PESTAÑA: MÉTRICAS (AUTOESCALA FIJA + DESGLOSE DÍA A DÍA)
+# 2. PESTAÑA: MÉTRICAS (GRÁFICOS LIMPIOS SIN ETIQUETAS TÉCNICAS)
 # -------------------------------------------------------------------
 with tab_metricas:
     st.header("📈 Progreso y Métricas de Ventas")
@@ -392,7 +391,10 @@ with tab_metricas:
         if "Día a Día" in modo_progreso:
             st.subheader("📅 Ganancia Limpia Día a Día")
             ventas_diarias = df.groupby('Fecha_Dia')['ganancia_limpia'].sum().reset_index()
-            fig_dia = px.line(ventas_diarias, x='Fecha_Dia', y='ganancia_limpia', markers=True, title="Ganancia Diaria ($)", color_discrete_sequence=['#4ade80'])
+            
+            fig_dia = px.line(ventas_diarias, x='Fecha_Dia', y='ganancia_limpia', markers=True, color_discrete_sequence=['#4ade80'])
+            # Se eliminan los títulos técnicos de los ejes
+            fig_dia.update_layout(xaxis_title="", yaxis_title="")
             fig_dia.update_xaxes(fixedrange=True)
             fig_dia.update_yaxes(fixedrange=True)
             st.plotly_chart(fig_dia, use_container_width=True, config={'displayModeBar': False})
@@ -400,7 +402,10 @@ with tab_metricas:
         else:
             st.subheader("🗓️ Ganancia Limpia Mes a Mes")
             ventas_mensuales = df.groupby('Mes_Año')['ganancia_limpia'].sum().reset_index()
-            fig_mes = px.bar(ventas_mensuales, x='Mes_Año', y='ganancia_limpia', title="Ganancia Mensual ($)", color_discrete_sequence=['#72b3c2'])
+            
+            fig_mes = px.bar(ventas_mensuales, x='Mes_Año', y='ganancia_limpia', color_discrete_sequence=['#72b3c2'])
+            # Se eliminan los títulos técnicos de los ejes
+            fig_mes.update_layout(xaxis_title="", yaxis_title="")
             fig_mes.update_xaxes(fixedrange=True)
             fig_mes.update_yaxes(fixedrange=True)
             st.plotly_chart(fig_mes, use_container_width=True, config={'displayModeBar': False})
@@ -410,13 +415,16 @@ with tab_metricas:
         with col_g1:
             st.subheader("🏆 Productos Más Vendidos")
             prod_ranking = df.groupby('producto')['cantidad'].sum().reset_index().sort_values(by='cantidad', ascending=False)
-            fig_prod = px.pie(prod_ranking, values='cantidad', names='producto', title="Distribución de Ventas", hole=0.4)
+            fig_prod = px.pie(prod_ranking, values='cantidad', names='producto', hole=0.4)
             st.plotly_chart(fig_prod, use_container_width=True, config={'displayModeBar': False})
 
         with col_g2:
             st.subheader("💰 Productos Más Rentables")
             rent_ranking = df.groupby('producto')['ganancia_limpia'].sum().reset_index().sort_values(by='ganancia_limpia', ascending=False)
-            fig_rent = px.bar(rent_ranking, x='producto', y='ganancia_limpia', title="Ganancia Neta ($)", color_discrete_sequence=['#e8a598'])
+            
+            fig_rent = px.bar(rent_ranking, x='producto', y='ganancia_limpia', color_discrete_sequence=['#e8a598'])
+            # Se eliminan los títulos técnicos de los ejes
+            fig_rent.update_layout(xaxis_title="", yaxis_title="")
             fig_rent.update_xaxes(fixedrange=True)
             fig_rent.update_yaxes(fixedrange=True)
             st.plotly_chart(fig_rent, use_container_width=True, config={'displayModeBar': False})

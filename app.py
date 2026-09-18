@@ -635,74 +635,141 @@ if opcion_menu == "📊 Cargar Venta Diaria":
     # ---------------- HISTORIAL ----------------
     st.markdown("---")
     st.subheader("📋 Historial de ventas")
-    st.caption("Se muestran las últimas 100 ventas. El resto permanece guardado en Supabase.")
+    st.caption("Se muestran 50 ventas por página. El resto permanece guardado en Supabase.")
+
+    # ---------------- PAGINACIÓN ----------------
+    VENTAS_POR_PAGINA = 50
 
     try:
-        respuesta = (
+        total_respuesta = (
             supabase.table("ventas")
-            .select("*")
-            .order("fecha", desc=True)
-            .limit(100)
+            .select("id", count="exact", head=True)
             .execute()
         )
-        datos_ventas = respuesta.data or []
+        total_ventas = int(total_respuesta.count or 0)
     except Exception as err:
-        st.error(f"No se pudo cargar el historial: {err}")
-        datos_ventas = []
+        st.error(f"No se pudo contar el historial: {err}")
+        total_ventas = 0
 
-    if not datos_ventas:
+    if total_ventas == 0:
         st.info("Todavía no hay ventas registradas.")
     else:
-        df_ventas = pd.DataFrame(datos_ventas)
-        df_ventas["fecha"] = pd.to_datetime(
-            df_ventas["fecha"], errors="coerce"
+        total_paginas = (total_ventas + VENTAS_POR_PAGINA - 1) // VENTAS_POR_PAGINA
+
+        if "pagina_historial_ventas" not in st.session_state:
+            st.session_state.pagina_historial_ventas = 1
+
+        pagina_actual = min(
+            max(int(st.session_state.pagina_historial_ventas), 1),
+            total_paginas,
         )
 
-        for _, row in df_ventas.iterrows():
-            fecha_txt = (
-                row["fecha"].strftime("%d/%m/%Y")
-                if pd.notna(row["fecha"])
-                else "-"
+        offset = (pagina_actual - 1) * VENTAS_POR_PAGINA
+
+        try:
+            respuesta = (
+                supabase.table("ventas")
+                .select("*")
+                .order("fecha", desc=True)
+                .order("id", desc=True)
+                .range(offset, offset + VENTAS_POR_PAGINA - 1)
+                .execute()
+            )
+            datos_ventas = respuesta.data or []
+        except Exception as err:
+            st.error(f"No se pudo cargar el historial: {err}")
+            datos_ventas = []
+
+        # Controles de navegación: anterior, números de página y siguiente.
+        if total_paginas > 1:
+            nav_cols = st.columns([1, 1, 1, 1, 1])
+
+            with nav_cols[0]:
+                if st.button(
+                    "⬅️ Anterior",
+                    disabled=pagina_actual <= 1,
+                    use_container_width=True,
+                    key="hist_prev",
+                ):
+                    st.session_state.pagina_historial_ventas = pagina_actual - 1
+                    st.rerun()
+
+            # Mostramos hasta 5 números alrededor de la página actual.
+            inicio_pag = max(1, pagina_actual - 2)
+            fin_pag = min(total_paginas, inicio_pag + 4)
+            inicio_pag = max(1, fin_pag - 4)
+            paginas_mostrar = list(range(inicio_pag, fin_pag + 1))
+
+            for i, numero_pag in enumerate(paginas_mostrar, start=1):
+                with nav_cols[i]:
+                    if st.button(
+                        f"{'🔵 ' if numero_pag == pagina_actual else ''}{numero_pag}",
+                        disabled=numero_pag == pagina_actual,
+                        use_container_width=True,
+                        key=f"hist_page_{numero_pag}",
+                    ):
+                        st.session_state.pagina_historial_ventas = numero_pag
+                        st.rerun()
+
+            st.caption(
+                f"Página {pagina_actual} de {total_paginas} · "
+                f"{total_ventas} ventas registradas · "
+                f"Mostrando {offset + 1}-{min(offset + VENTAS_POR_PAGINA, total_ventas)}"
             )
 
-            with st.container():
-                col_info, col_btn = st.columns([5, 1])
+        if not datos_ventas:
+            st.info("No hay ventas para esta página.")
+        else:
+            df_ventas = pd.DataFrame(datos_ventas)
+            df_ventas["fecha"] = pd.to_datetime(
+                df_ventas["fecha"], errors="coerce"
+            )
 
-                with col_info:
-                    st.markdown(
-                        f"""
-                        <div class="venta-item">
-                            📅 <b>{fecha_txt}</b> |
-                            <b>{row.get('producto', '-')}</b>
-                            ({row.get('tipo_venta', '-')}) x
-                            {row.get('cantidad', 0)}
-                            <br>
-                            💵 Venta:
-                            <b>{dinero(row.get('monto_total', 0))}</b>
-                            &nbsp;|&nbsp;
-                            📦 Costo:
-                            <b>{dinero(row.get('costo_total', 0))}</b>
-                            &nbsp;|&nbsp;
-                            📈 Margen:
-                            <b>{dinero(row.get('ganancia_limpia', 0))}</b>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
+            for _, row in df_ventas.iterrows():
+                fecha_txt = (
+                    row["fecha"].strftime("%d/%m/%Y")
+                    if pd.notna(row["fecha"])
+                    else "-"
+                )
 
-                with col_btn:
-                    if st.button(
-                        "🗑️ Borrar",
-                        key=f"del_venta_{row.get('id')}",
-                    ):
-                        try:
-                            supabase.table("ventas").delete().eq(
-                                "id", row.get("id")
-                            ).execute()
-                            st.success("Venta eliminada.")
-                            st.rerun()
-                        except Exception as err:
-                            st.error(f"No se pudo eliminar: {err}")
+                with st.container():
+                    col_info, col_btn = st.columns([5, 1])
+
+                    with col_info:
+                        st.markdown(
+                            f"""
+                            <div class="venta-item">
+                                📅 <b>{fecha_txt}</b> |
+                                <b>{row.get('producto', '-')}</b>
+                                ({row.get('tipo_venta', '-')}) x
+                                {row.get('cantidad', 0)}
+                                <br>
+                                💵 Venta:
+                                <b>{dinero(row.get('monto_total', 0))}</b>
+                                &nbsp;|&nbsp;
+                                📦 Costo:
+                                <b>{dinero(row.get('costo_total', 0))}</b>
+                                &nbsp;|&nbsp;
+                                📈 Margen:
+                                <b>{dinero(row.get('ganancia_limpia', 0))}</b>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                    with col_btn:
+                        if st.button(
+                            "🗑️ Borrar",
+                            key=f"del_venta_{row.get('id')}",
+                        ):
+                            try:
+                                supabase.table("ventas").delete().eq(
+                                    "id", row.get("id")
+                                ).execute()
+                                st.success("Venta eliminada.")
+                                st.rerun()
+                            except Exception as err:
+                                st.error(f"No se pudo eliminar: {err}")
 
 # ============================================================
 # 2. DASHBOARD
@@ -902,9 +969,8 @@ elif opcion_menu == "📈 Dashboard":
             fig = px.bar(
                 diario,
                 x="Día",
-                y=["Facturación", "Margen"],
-                barmode="group",
-                title="Facturación y margen bruto por día",
+                y="Margen",
+                title="Margen bruto por día",
             )
             st.plotly_chart(fig, use_container_width=True)
 
@@ -928,9 +994,8 @@ elif opcion_menu == "📈 Dashboard":
             fig_m = px.bar(
                 mensual,
                 x="Mes",
-                y=["Facturación", "Margen"],
-                barmode="group",
-                title="Facturación y margen bruto por mes",
+                y="Margen",
+                title="Margen bruto por mes",
             )
             st.plotly_chart(fig_m, use_container_width=True)
 

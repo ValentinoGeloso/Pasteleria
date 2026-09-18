@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import unicodedata
 import plotly.express as px
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -218,6 +219,34 @@ def numero(valor, default=0.0):
 def limpiar_texto(valor):
     return str(valor).strip()
 
+def clave_insumo(valor):
+    """Normaliza nombres para comparar insumos sin depender de tildes,
+    mayúsculas/minúsculas o espacios sobrantes.
+
+    Ejemplo: "Azúcar impalpable (kg)" y "Azucar impalpable (kg)"
+    se consideran el mismo insumo a efectos del cálculo.
+    """
+    texto = limpiar_texto(valor).lower()
+    texto = unicodedata.normalize("NFKD", texto)
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    return " ".join(texto.split())
+
+def buscar_insumo(nombre_receta):
+    """Devuelve (nombre_real, precio) buscando de forma robusta.
+
+    Primero intenta coincidencia exacta y luego coincidencia normalizada
+    para tolerar diferencias como Azúcar/Azucar.
+    """
+    if nombre_receta in st.session_state.INSUMOS:
+        return nombre_receta, numero(st.session_state.INSUMOS[nombre_receta], 0.0)
+
+    clave = clave_insumo(nombre_receta)
+    for nombre_real, precio in st.session_state.INSUMOS.items():
+        if clave_insumo(nombre_real) == clave:
+            return nombre_real, numero(precio, 0.0)
+
+    return None, None
+
 def refrescar_datos():
     st.session_state.pop("INSUMOS", None)
     st.session_state.pop("RECETAS", None)
@@ -323,11 +352,13 @@ def calcular_costo_receta(nombre_receta):
     for ing, cant in (receta.get("ingredientes") or {}).items():
         cantidad = numero(cant, 0.0)
 
-        if ing not in st.session_state.INSUMOS:
+        nombre_real, precio = buscar_insumo(ing)
+
+        if nombre_real is None:
             faltantes.append(ing)
             continue
 
-        costo_lote += cantidad * numero(st.session_state.INSUMOS[ing], 0.0)
+        costo_lote += cantidad * precio
 
     costo_unitario = costo_lote / rinde
     return costo_lote, costo_unitario, faltantes

@@ -1,14 +1,15 @@
 import streamlit as st
 import pandas as pd
-import unicodedata
 import plotly.express as px
+import unicodedata
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from supabase import create_client
 
 # ============================================================
 # DULCE MAR - SISTEMA INTEGRAL
-# Versión mejorada:
+# Versión 2.1 - robustez y compatibilidad
+# Mejoras principales:
 # - Conserva las tablas existentes: insumos, productos y ventas.
 # - Agrega gastos_operativos y mermas.
 # - Las ventas históricas guardan su costo al momento de vender.
@@ -219,33 +220,30 @@ def numero(valor, default=0.0):
 def limpiar_texto(valor):
     return str(valor).strip()
 
-def clave_insumo(valor):
-    """Normaliza nombres para comparar insumos sin depender de tildes,
-    mayúsculas/minúsculas o espacios sobrantes.
 
-    Ejemplo: "Azúcar impalpable (kg)" y "Azucar impalpable (kg)"
-    se consideran el mismo insumo a efectos del cálculo.
-    """
-    texto = limpiar_texto(valor).lower()
+def clave_normalizada(valor):
+    """Normaliza texto para comparar nombres sin depender de tildes/case/espacios."""
+    texto = str(valor or "").strip().lower()
     texto = unicodedata.normalize("NFKD", texto)
-    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = "".join(
+        caracter for caracter in texto
+        if not unicodedata.combining(caracter)
+    )
     return " ".join(texto.split())
 
-def buscar_insumo(nombre_receta):
-    """Devuelve (nombre_real, precio) buscando de forma robusta.
 
-    Primero intenta coincidencia exacta y luego coincidencia normalizada
-    para tolerar diferencias como Azúcar/Azucar.
-    """
-    if nombre_receta in st.session_state.INSUMOS:
-        return nombre_receta, numero(st.session_state.INSUMOS[nombre_receta], 0.0)
+def buscar_insumo(nombre):
+    """Encuentra un insumo aunque haya diferencias de tildes o mayúsculas."""
+    if nombre in st.session_state.INSUMOS:
+        return nombre
 
-    clave = clave_insumo(nombre_receta)
-    for nombre_real, precio in st.session_state.INSUMOS.items():
-        if clave_insumo(nombre_real) == clave:
-            return nombre_real, numero(precio, 0.0)
+    objetivo = clave_normalizada(nombre)
+    for existente in st.session_state.INSUMOS:
+        if clave_normalizada(existente) == objetivo:
+            return existente
 
-    return None, None
+    return None
+
 
 def refrescar_datos():
     st.session_state.pop("INSUMOS", None)
@@ -283,7 +281,7 @@ def obtener_insumos():
 
     except Exception as e:
         st.error(f"Error al cargar insumos: {e}")
-        return dict(INSUMOS_DEFAULT)
+        return {}
 
 
 def obtener_recetas():
@@ -323,7 +321,7 @@ def obtener_recetas():
 
     except Exception as e:
         st.error(f"Error al cargar productos: {e}")
-        return dict(RECETAS_DEFAULT)
+        return {}
 
 
 if "INSUMOS" not in st.session_state:
@@ -351,43 +349,46 @@ def calcular_costo_receta(nombre_receta):
 
     for ing, cant in (receta.get("ingredientes") or {}).items():
         cantidad = numero(cant, 0.0)
-
-        nombre_real, precio = buscar_insumo(ing)
+        nombre_real = buscar_insumo(ing)
 
         if nombre_real is None:
             faltantes.append(ing)
             continue
 
-        costo_lote += cantidad * precio
+        costo_lote += cantidad * numero(
+            st.session_state.INSUMOS[nombre_real],
+            0.0,
+        )
 
     costo_unitario = costo_lote / rinde
     return costo_lote, costo_unitario, faltantes
 
+def presentacion_base(texto):
+    """Quita información adicional de una venta, como una promo de budín."""
+    return str(texto or "").split(" + ", 1)[0].strip()
+
 
 def multiplicador_presentacion(presentacion, receta):
-    """
-    Devuelve cuántas unidades/porciones del rendimiento representa
-    una presentación.
+    """Devuelve cuántas unidades/porciones representa una presentación."""
+    texto = presentacion_base(presentacion).lower()
 
-    Ejemplos:
-    - 1 Unidad / Porción -> 1
-    - Media Docena -> 6
-    - Docena -> 12
-    - Entero -> rendimiento completo
-    """
-    texto = str(presentacion).lower()
-
-    if "docena (12u)" in texto:
+    if "docena (12u)" in texto or texto == "docena":
         return 12
 
-    if "media docena (6u)" in texto:
+    if "media docena (6u)" in texto or "media docena" in texto:
         return 6
 
-    if "porción" in texto or "porcion" in texto or "1 unidad" in texto:
+    if (
+        "porción" in texto
+        or "porcion" in texto
+        or "1 unidad" in texto
+        or texto in {"unidad", "1u"}
+    ):
         return 1
 
+    # "Entero" y cualquier presentación no tipificada representan
+    # el rendimiento completo de la receta.
     return int(numero(receta.get("rinde"), 1))
-
 
 def calcular_costo_presentacion(nombre_receta, presentacion, cantidad=1):
     receta = st.session_state.RECETAS[nombre_receta]
@@ -545,12 +546,18 @@ if opcion_menu == "📊 Cargar Venta Diaria":
         )
         costo_total_venta = 0.0
 
+    faltantes_venta = list(faltantes)
+    faltantes_budin = []
+
     if cant_budin_promo > 0 and budin_sel_promo:
         _, costo_u_budin, faltantes_budin = calcular_costo_receta(
             budin_sel_promo
         )
 
         if faltantes_budin:
+            faltantes_venta.extend(
+                [f"{budin_sel_promo}: {x}" for x in faltantes_budin]
+            )
             st.error(
                 "La promo tiene insumos faltantes: "
                 + ", ".join(faltantes_budin)
@@ -581,8 +588,11 @@ if opcion_menu == "📊 Cargar Venta Diaria":
         use_container_width=True,
     ):
         try:
-            if faltantes:
-                st.error("Corregí los insumos faltantes antes de guardar.")
+            if faltantes_venta:
+                st.error(
+                    "Corregí los insumos faltantes antes de guardar: "
+                    + ", ".join(faltantes_venta)
+                )
                 st.stop()
 
             presentacion_final = tipo_presentacion
@@ -625,12 +635,14 @@ if opcion_menu == "📊 Cargar Venta Diaria":
     # ---------------- HISTORIAL ----------------
     st.markdown("---")
     st.subheader("📋 Historial de ventas")
+    st.caption("Se muestran las últimas 100 ventas. El resto permanece guardado en Supabase.")
 
     try:
         respuesta = (
             supabase.table("ventas")
             .select("*")
             .order("fecha", desc=True)
+            .limit(100)
             .execute()
         )
         datos_ventas = respuesta.data or []
@@ -726,16 +738,15 @@ elif opcion_menu == "📈 Dashboard":
         for col in ["cantidad", "monto_total", "costo_total", "ganancia_limpia"]:
             df = safe_float_series(df, col)
 
-        # Unidades equivalentes para que 1 docena no cuente igual que 1 unidad.
+        # Unidades equivalentes: usamos la receta real para que
+        # "Entero" represente el rendimiento completo y no simplemente 1.
         def unidades_equivalentes(row):
-            pres = str(row.get("tipo_venta", "")).lower()
+            producto = row.get("producto")
+            pres = row.get("tipo_venta", "")
             cant = numero(row.get("cantidad"), 0)
-
-            if "docena (12u)" in pres:
-                return cant * 12
-            if "media docena (6u)" in pres:
-                return cant * 6
-            return cant
+            receta = st.session_state.RECETAS.get(producto, {})
+            factor = multiplicador_presentacion(pres, receta)
+            return cant * factor
 
         df["unidades_equivalentes"] = df.apply(
             unidades_equivalentes, axis=1
@@ -1478,11 +1489,15 @@ elif opcion_menu == "🛒 Insumos y Costos":
                     # alguna receta todavía necesita.
                     recetas_que_lo_usan = []
 
+                    clave_a_eliminar = clave_normalizada(insumo_editar)
+
                     for nombre, receta in (
                         st.session_state.RECETAS.items()
                     ):
-                        if insumo_editar in (
-                            receta.get("ingredientes", {})
+                        usados = receta.get("ingredientes", {})
+                        if any(
+                            clave_normalizada(ing) == clave_a_eliminar
+                            for ing in usados
                         ):
                             recetas_que_lo_usan.append(nombre)
 
@@ -1564,8 +1579,10 @@ elif opcion_menu == "🛒 Insumos y Costos":
                 st.warning("Escribí un nombre.")
                 st.stop()
 
-            if nombre in st.session_state.INSUMOS:
-                st.warning("Ese insumo ya existe.")
+            if buscar_insumo(nombre) is not None:
+                st.warning(
+                    "Ese insumo ya existe (también se detectan diferencias de tildes/mayúsculas)."
+                )
                 st.stop()
 
             try:
@@ -2096,11 +2113,11 @@ elif opcion_menu == "⚙️ Calculadora de Costos":
         receta.get("ingredientes", {}).items()
     ):
 
+        nombre_real = buscar_insumo(ing)
         precio_ing = (
-            st.session_state.INSUMOS.get(
-                ing,
-                None,
-            )
+            st.session_state.INSUMOS.get(nombre_real)
+            if nombre_real is not None
+            else None
         )
 
         if precio_ing is None:

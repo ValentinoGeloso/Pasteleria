@@ -410,6 +410,285 @@ def calcular_margen(precio, costo):
     return margen_pesos, margen_pct
 
 # ============================================================
+# IMPORTADOR DE VENTAS HISTÓRICAS
+# ============================================================
+
+ALIAS_COLUMNAS_VENTAS = {
+    "fecha": ["fecha", "dia", "día", "date"],
+    "producto": ["producto", "productos", "item", "articulo", "artículo", "detalle", "descripcion", "descripción", "venta"],
+    "cantidad": ["cantidad", "cant", "cantidad vendida", "unidades", "uds", "qty"],
+    "monto": ["monto", "monto total", "total", "importe", "precio", "precio total", "venta total", "facturacion", "facturación", "cobrado"],
+    "presentacion": ["presentacion", "presentación", "tipo", "formato", "unidad", "tamaño", "tamano"],
+}
+
+
+def detectar_columna(df, tipo):
+    """Busca automáticamente una columna habitual del Excel."""
+    if df is None or df.empty:
+        return None
+
+    normalizadas = {
+        col: clave_normalizada(col).replace("_", " ")
+        for col in df.columns
+    }
+
+    for alias in ALIAS_COLUMNAS_VENTAS.get(tipo, []):
+        alias_n = clave_normalizada(alias)
+        for col, col_n in normalizadas.items():
+            if col_n == alias_n:
+                return col
+
+    for alias in ALIAS_COLUMNAS_VENTAS.get(tipo, []):
+        alias_n = clave_normalizada(alias)
+        for col, col_n in normalizadas.items():
+            if alias_n in col_n or col_n in alias_n:
+                return col
+
+    return None
+
+
+def encontrar_producto_historico(texto):
+    """Relaciona el texto del Excel con un producto existente.
+    Si dice solamente Budín/Budin, conserva el gusto como desconocido.
+    """
+    texto_n = clave_normalizada(texto)
+    if not texto_n:
+        return None
+
+    productos = list(st.session_state.RECETAS.keys())
+
+    # Primero exactos y luego coincidencias por nombre completo.
+    for producto in sorted(productos, key=len, reverse=True):
+        if clave_normalizada(producto) == texto_n:
+            return producto
+
+    for producto in sorted(productos, key=len, reverse=True):
+        producto_n = clave_normalizada(producto)
+        if producto_n and producto_n in texto_n:
+            return producto
+
+    if "budin" in texto_n or "budines" in texto_n:
+        return "__BUDIN_HISTORICO_SIN_GUSTO__"
+
+    return None
+
+
+def extraer_cantidad_desde_texto(texto):
+    """Detecta cantidades simples en textos como '2 budines' o 'x3'."""
+    texto = str(texto or "")
+    patrones = [
+        r"(?:^|\\s)x\\s*(\\d+(?:[.,]\\d+)?)",
+        r"(?:^|\s)(\d+(?:[.,]\d+)?)\s*(?:x|unid|unidad|u|budin|budines|porcion|porciones|porc|porción)",
+    ]
+
+    import re
+
+    for patron in patrones:
+        encontrado = re.search(patron, texto, flags=re.IGNORECASE)
+        if encontrado:
+            try:
+                return float(encontrado.group(1).replace(",", "."))
+            except Exception:
+                pass
+
+    return None
+
+
+def detectar_presentacion_historica(texto, producto, monto, cantidad):
+    texto_n = clave_normalizada(texto)
+
+    if "media docena" in texto_n:
+        return "Media Docena (6u)"
+    if "docena" in texto_n:
+        return "Docena (12u)"
+    if (
+        "porcion" in texto_n
+        or "porciones" in texto_n
+        or "porc" in texto_n
+        or "por." in str(texto).lower()
+    ):
+        return "Porción"
+    if "entero" in texto_n or "grande" in texto_n:
+        return "Entero"
+
+    # Regla histórica de Dulce Mar: cuando se anotaba "chipa" sin
+    # aclarar presentación, se refería a una bolsa de media docena.
+    if producto == "Chipa":
+        return "Media Docena (6u)"
+
+    if producto == "__BUDIN_HISTORICO_SIN_GUSTO__":
+        # Si no se especificó el gusto pero sí se escribió "porc"/"por.",
+        # la venta es una porción. Para un "budín" sin presentación,
+        # mantenemos la inferencia por precio como respaldo.
+        unitario = numero(monto) / max(numero(cantidad, 1), 1)
+        return "Porción" if unitario <= 2000 else "Entero"
+
+    if producto in st.session_state.RECETAS:
+        precios = st.session_state.RECETAS[producto].get("precios") or {}
+        if precios:
+            unitario = numero(monto) / max(numero(cantidad, 1), 1)
+            for presentacion, precio in precios.items():
+                if abs(numero(precio) - unitario) < 1:
+                    return presentacion
+
+            if len(precios) == 1:
+                return next(iter(precios))
+
+            # Para productos con porciones + entero, una venta cercana al
+            # precio de porción suele ser una porción; si no, entero.
+            for presentacion, precio in precios.items():
+                if "porcion" in clave_normalizada(presentacion) and unitario <= numero(precio) * 1.15:
+                    return presentacion
+
+            return "Entero" if "Entero" in precios else next(iter(precios))
+
+    return "Entero"
+
+
+def costo_historico_generico_budin(presentacion):
+    """Promedio de costo actual de los budines cuando el Excel no informa gusto.
+    Se usa solo para poder reconstruir el margen histórico sin inventar un gusto.
+    """
+    costos = []
+    for nombre, receta in st.session_state.RECETAS.items():
+        if "budin" not in clave_normalizada(nombre):
+            continue
+        _, costo_u, faltantes = calcular_costo_receta(nombre)
+        if faltantes:
+            continue
+        if "porcion" in clave_normalizada(presentacion):
+            costos.append(costo_u)
+        else:
+            costos.append(costo_u * numero(receta.get("rinde"), 1))
+
+    return sum(costos) / len(costos) if costos else 0.0
+
+
+def costo_venta_historica(producto, presentacion, cantidad):
+    if producto == "__BUDIN_HISTORICO_SIN_GUSTO__":
+        return costo_historico_generico_budin(presentacion) * numero(cantidad, 1), True
+
+    if producto not in st.session_state.RECETAS:
+        return 0.0, False
+
+    costo, faltantes = calcular_costo_presentacion(
+        producto,
+        presentacion,
+        cantidad,
+    )
+    return costo, not bool(faltantes)
+
+
+def preparar_ventas_historicas_archivo(archivo):
+    """Lee todas las hojas del Excel y devuelve ventas normalizadas + advertencias."""
+    nombre_archivo = getattr(archivo, "name", "archivo")
+    hojas = pd.read_excel(archivo, sheet_name=None)
+    filas = []
+    advertencias = []
+
+    for nombre_hoja, df in hojas.items():
+        if df is None or df.empty:
+            continue
+
+        # Elimina columnas completamente vacías y filas completamente vacías.
+        df = df.dropna(axis=1, how="all").dropna(axis=0, how="all").copy()
+        if df.empty:
+            continue
+
+        col_fecha = detectar_columna(df, "fecha")
+        col_producto = detectar_columna(df, "producto")
+        col_cantidad = detectar_columna(df, "cantidad")
+        col_monto = detectar_columna(df, "monto")
+        col_presentacion = detectar_columna(df, "presentacion")
+
+        if not col_fecha or not col_producto or not col_monto:
+            advertencias.append(
+                f"{nombre_archivo} / hoja '{nombre_hoja}': no se pudieron detectar "
+                "Fecha + Producto + Monto. Se omitió esa hoja."
+            )
+            continue
+
+        for nro_fila, fila in df.iterrows():
+            fecha = pd.to_datetime(fila.get(col_fecha), errors="coerce", dayfirst=True)
+            if pd.isna(fecha):
+                continue
+
+            texto_producto = str(fila.get(col_producto, "")).strip()
+            if not texto_producto or texto_producto.lower() == "nan":
+                continue
+
+            producto = encontrar_producto_historico(texto_producto)
+            if not producto:
+                advertencias.append(
+                    f"{nombre_archivo} / {nombre_hoja} / fila {nro_fila + 2}: "
+                    f"producto no reconocido: '{texto_producto}'."
+                )
+                continue
+
+            monto = numero(fila.get(col_monto), 0.0)
+            if monto <= 0:
+                continue
+
+            cantidad = numero(fila.get(col_cantidad), 0.0) if col_cantidad else 0.0
+            if cantidad <= 0:
+                cantidad = extraer_cantidad_desde_texto(texto_producto) or 1.0
+
+            presentacion_texto = str(fila.get(col_presentacion, "")) if col_presentacion else ""
+            presentacion = detectar_presentacion_historica(
+                f"{texto_producto} {presentacion_texto}",
+                producto,
+                monto,
+                cantidad,
+            )
+
+            costo, costo_ok = costo_venta_historica(
+                producto,
+                presentacion,
+                cantidad,
+            )
+
+            producto_guardado = (
+                "Budines (gusto no registrado)"
+                if producto == "__BUDIN_HISTORICO_SIN_GUSTO__"
+                else producto
+            )
+
+            if not costo_ok:
+                advertencias.append(
+                    f"{nombre_archivo} / {nombre_hoja} / fila {nro_fila + 2}: "
+                    f"no se pudo calcular costo para '{producto_guardado}'. Se usará costo $0."
+                )
+                costo = 0.0
+
+            filas.append({
+                "fecha": fecha.date(),
+                "producto": producto_guardado,
+                "cantidad": int(round(cantidad)),
+                "tipo_venta": presentacion,
+                "monto_total": float(monto),
+                "costo_total": float(costo),
+                "ganancia_limpia": float(monto - costo),
+                "_archivo": nombre_archivo,
+                "_hoja": nombre_hoja,
+                "_fila": int(nro_fila + 2),
+            })
+
+    return filas, advertencias
+
+
+def firma_venta_historica(row):
+    fecha = pd.to_datetime(row.get("fecha"), errors="coerce")
+    fecha_txt = fecha.strftime("%Y-%m-%d") if pd.notna(fecha) else ""
+    return "|".join([
+        fecha_txt,
+        clave_normalizada(row.get("producto", "")),
+        str(int(numero(row.get("cantidad"), 0))),
+        clave_normalizada(row.get("tipo_venta", "")),
+        f"{numero(row.get('monto_total'), 0):.2f}",
+    ])
+
+# ============================================================
+# ============================================================
 # MODAL
 # ============================================================
 
@@ -434,6 +713,7 @@ opcion_menu = st.sidebar.radio(
     "Navegación:",
     [
         "📊 Cargar Venta Diaria",
+        "📥 Importar Ventas Históricas",
         "📈 Dashboard",
         "🏷️ Productos y Recetas",
         "🛒 Insumos y Costos",
@@ -682,23 +962,23 @@ if opcion_menu == "📊 Cargar Venta Diaria":
 
         # Controles de navegación: anterior, números de página y siguiente.
         if total_paginas > 1:
-            nav_cols = st.columns([1, 1, 1, 1, 1])
-
-            with nav_cols[0]:
-                if st.button(
-                    "⬅️ Anterior",
-                    disabled=pagina_actual <= 1,
-                    use_container_width=True,
-                    key="hist_prev",
-                ):
-                    st.session_state.pagina_historial_ventas = pagina_actual - 1
-                    st.rerun()
-
-            # Mostramos hasta 5 números alrededor de la página actual.
+            # Mostramos anterior + hasta 5 números + siguiente.
             inicio_pag = max(1, pagina_actual - 2)
             fin_pag = min(total_paginas, inicio_pag + 4)
             inicio_pag = max(1, fin_pag - 4)
             paginas_mostrar = list(range(inicio_pag, fin_pag + 1))
+            nav_cols = st.columns(len(paginas_mostrar) + 2)
+
+            with nav_cols[0]:
+                if st.button(
+                    "⬅️",
+                    disabled=pagina_actual <= 1,
+                    use_container_width=True,
+                    key="hist_prev",
+                    help="Página anterior",
+                ):
+                    st.session_state.pagina_historial_ventas = pagina_actual - 1
+                    st.rerun()
 
             for i, numero_pag in enumerate(paginas_mostrar, start=1):
                 with nav_cols[i]:
@@ -710,6 +990,17 @@ if opcion_menu == "📊 Cargar Venta Diaria":
                     ):
                         st.session_state.pagina_historial_ventas = numero_pag
                         st.rerun()
+
+            with nav_cols[-1]:
+                if st.button(
+                    "➡️",
+                    disabled=pagina_actual >= total_paginas,
+                    use_container_width=True,
+                    key="hist_next",
+                    help="Página siguiente",
+                ):
+                    st.session_state.pagina_historial_ventas = pagina_actual + 1
+                    st.rerun()
 
             st.caption(
                 f"Página {pagina_actual} de {total_paginas} · "
@@ -772,7 +1063,251 @@ if opcion_menu == "📊 Cargar Venta Diaria":
                                 st.error(f"No se pudo eliminar: {err}")
 
 # ============================================================
-# 2. DASHBOARD
+# 2. IMPORTAR VENTAS HISTÓRICAS
+# ============================================================
+
+elif opcion_menu == "📥 Importar Ventas Históricas":
+
+    st.header("📥 Importar ventas históricas")
+    st.caption(
+        "Subí uno o varios Excel/CSV y el sistema intentará detectar automáticamente "
+        "fecha, producto, cantidad y precio. No modifica insumos, recetas ni ventas existentes."
+    )
+
+    st.info(
+        "💡 Reglas históricas: **2 porc**, **2 porciones** o **por. budín** se interpreta como porciones de budín. "
+        "Si el budín no tiene gusto indicado, se guarda como **Budines (gusto no registrado)**. "
+        "En el caso de **chipa**, si no se aclara presentación, se interpreta como **1 bolsa de media docena (6u)**; "
+        "por ejemplo, **2 chipa = 2 bolsas de 6**. Así mantenemos la ganancia histórica completa sin inventar gustos."
+    )
+
+    archivos = st.file_uploader(
+        "Seleccioná los archivos históricos",
+        type=["xlsx", "xls", "csv"],
+        accept_multiple_files=True,
+        help="Podés seleccionar varios archivos de abril, mayo, junio y julio a la vez.",
+    )
+
+    if archivos:
+        todas_las_filas = []
+        todas_las_advertencias = []
+
+        for archivo in archivos:
+            try:
+                if archivo.name.lower().endswith(".csv"):
+                    # Para CSV se intenta primero UTF-8 y luego latin-1.
+                    try:
+                        df_csv = pd.read_csv(archivo)
+                    except UnicodeDecodeError:
+                        archivo.seek(0)
+                        df_csv = pd.read_csv(archivo, encoding="latin-1")
+                    hojas_csv = {"CSV": df_csv}
+
+                    # Reutilizamos la misma lógica de Excel mediante un pequeño wrapper.
+                    # Pandas Excel necesita un archivo, así que procesamos directamente la hoja.
+                    for nombre_hoja, df in hojas_csv.items():
+                        col_fecha = detectar_columna(df, "fecha")
+                        col_producto = detectar_columna(df, "producto")
+                        col_cantidad = detectar_columna(df, "cantidad")
+                        col_monto = detectar_columna(df, "monto")
+                        col_presentacion = detectar_columna(df, "presentacion")
+
+                        if not col_fecha or not col_producto or not col_monto:
+                            todas_las_advertencias.append(
+                                f"{archivo.name}: no se detectaron Fecha + Producto + Monto."
+                            )
+                            continue
+
+                        for nro_fila, fila in df.dropna(axis=0, how="all").iterrows():
+                            fecha = pd.to_datetime(fila.get(col_fecha), errors="coerce", dayfirst=True)
+                            if pd.isna(fecha):
+                                continue
+                            texto_producto = str(fila.get(col_producto, "")).strip()
+                            producto = encontrar_producto_historico(texto_producto)
+                            if not producto:
+                                if texto_producto and texto_producto.lower() != "nan":
+                                    todas_las_advertencias.append(
+                                        f"{archivo.name} / fila {nro_fila + 2}: producto no reconocido: '{texto_producto}'."
+                                    )
+                                continue
+                            monto = numero(fila.get(col_monto), 0.0)
+                            if monto <= 0:
+                                continue
+                            cantidad = numero(fila.get(col_cantidad), 0.0) if col_cantidad else 0.0
+                            if cantidad <= 0:
+                                cantidad = extraer_cantidad_desde_texto(texto_producto) or 1.0
+                            presentacion_texto = str(fila.get(col_presentacion, "")) if col_presentacion else ""
+                            presentacion = detectar_presentacion_historica(
+                                f"{texto_producto} {presentacion_texto}", producto, monto, cantidad
+                            )
+                            costo, costo_ok = costo_venta_historica(producto, presentacion, cantidad)
+                            producto_guardado = (
+                                "Budines (gusto no registrado)"
+                                if producto == "__BUDIN_HISTORICO_SIN_GUSTO__"
+                                else producto
+                            )
+                            if not costo_ok:
+                                costo = 0.0
+                                todas_las_advertencias.append(
+                                    f"{archivo.name} / fila {nro_fila + 2}: costo no calculable para '{producto_guardado}'."
+                                )
+                            todas_las_filas.append({
+                                "fecha": fecha.date(),
+                                "producto": producto_guardado,
+                                "cantidad": int(round(cantidad)),
+                                "tipo_venta": presentacion,
+                                "monto_total": float(monto),
+                                "costo_total": float(costo),
+                                "ganancia_limpia": float(monto - costo),
+                                "_archivo": archivo.name,
+                                "_hoja": "CSV",
+                                "_fila": int(nro_fila + 2),
+                            })
+                else:
+                    filas, advertencias = preparar_ventas_historicas_archivo(archivo)
+                    todas_las_filas.extend(filas)
+                    todas_las_advertencias.extend(advertencias)
+            except Exception as err:
+                todas_las_advertencias.append(
+                    f"{archivo.name}: no se pudo procesar ({err})."
+                )
+
+        if todas_las_filas:
+            df_importacion = pd.DataFrame(todas_las_filas)
+
+            # Evita duplicados dentro de los propios archivos.
+            df_importacion["_firma"] = df_importacion.apply(firma_venta_historica, axis=1)
+            duplicadas_archivos = int(df_importacion["_firma"].duplicated().sum())
+            df_importacion = df_importacion.drop_duplicates("_firma", keep="first").copy()
+
+            # Comparamos contra las ventas que ya están guardadas.
+            try:
+                existentes = (
+                    supabase.table("ventas")
+                    .select("fecha, producto, cantidad, tipo_venta, monto_total")
+                    .execute()
+                    .data
+                    or []
+                )
+                firmas_existentes = {
+                    firma_venta_historica(x)
+                    for x in existentes
+                }
+            except Exception as err:
+                firmas_existentes = set()
+                st.warning(
+                    "No se pudo verificar duplicados contra Supabase. "
+                    f"Revisá antes de confirmar. Detalle: {err}"
+                )
+
+            df_importacion["_existente"] = df_importacion["_firma"].isin(firmas_existentes)
+            nuevas = df_importacion[~df_importacion["_existente"]].copy()
+            repetidas = int(df_importacion["_existente"].sum()) + duplicadas_archivos
+
+            st.markdown("---")
+            st.subheader("🔎 Vista previa")
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Filas detectadas", len(df_importacion))
+            c2.metric("Nuevas para cargar", len(nuevas))
+            c3.metric("Duplicadas / ya cargadas", repetidas)
+            c4.metric("Facturación nueva", dinero(nuevas["monto_total"].sum() if not nuevas.empty else 0))
+
+            # Resumen especialmente útil para revisar los budines históricos.
+            resumen_productos = (
+                df_importacion.groupby("producto")
+                .agg(
+                    Ventas=("monto_total", "sum"),
+                    Cantidad=("cantidad", "sum"),
+                    Operaciones=("producto", "count"),
+                )
+                .reset_index()
+                .sort_values("Ventas", ascending=False)
+            )
+
+            st.dataframe(
+                resumen_productos.style.format({"Ventas": "${:,.2f}"}),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.caption(
+                "Los costos y márgenes de la importación se reconstruyen con las recetas/insumos "
+                "actualmente cargados. En budines sin gusto se usa el costo promedio de los budines conocidos."
+            )
+
+            with st.expander("Ver ventas detectadas antes de importar"):
+                columnas_mostrar = [
+                    "fecha", "producto", "cantidad", "tipo_venta",
+                    "monto_total", "costo_total", "ganancia_limpia",
+                    "_archivo", "_hoja", "_fila", "_existente",
+                ]
+                st.dataframe(
+                    df_importacion[columnas_mostrar].style.format({
+                        "monto_total": "${:,.2f}",
+                        "costo_total": "${:,.2f}",
+                        "ganancia_limpia": "${:,.2f}",
+                    }),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            if todas_las_advertencias:
+                with st.expander(f"⚠️ Avisos ({len(todas_las_advertencias)})"):
+                    for aviso in todas_las_advertencias[:100]:
+                        st.write("• " + aviso)
+                    if len(todas_las_advertencias) > 100:
+                        st.caption("Se muestran los primeros 100 avisos.")
+
+            if nuevas.empty:
+                st.success("No hay ventas nuevas para importar: todo lo detectado ya está cargado o era repetido dentro de los archivos.")
+            else:
+                if st.button(
+                    f"💾 Importar {len(nuevas)} ventas nuevas",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    registros = nuevas[[
+                        "fecha", "producto", "cantidad", "tipo_venta",
+                        "monto_total", "costo_total", "ganancia_limpia",
+                    ]].copy()
+                    registros["fecha"] = registros["fecha"].astype(str)
+                    registros = registros.to_dict(orient="records")
+
+                    try:
+                        # Insertamos por lotes para que una importación grande sea más estable.
+                        lote = 200
+                        total_insertadas = 0
+                        for inicio in range(0, len(registros), lote):
+                            bloque = registros[inicio:inicio + lote]
+                            supabase.table("ventas").insert(bloque).execute()
+                            total_insertadas += len(bloque)
+
+                        st.success(
+                            f"✅ Se importaron {total_insertadas} ventas históricas correctamente. "
+                            f"Se omitieron {repetidas} repetidas/ya existentes."
+                        )
+                        st.rerun()
+                    except Exception as err:
+                        st.error(
+                            "No se pudo completar la importación. "
+                            "Las ventas ya existentes no se modifican. "
+                            f"Detalle: {err}"
+                        )
+        else:
+            st.warning(
+                "No se detectaron ventas importables todavía. "
+                "Revisá los avisos o subí otro archivo."
+            )
+
+        if not todas_las_advertencias and not todas_las_filas:
+            st.caption(
+                "Consejo: si tus Excel tienen encabezados diferentes a Fecha / Producto / Cantidad / Monto, "
+                "subilos igual; si no se detectan automáticamente te mostramos qué columna faltó."
+            )
+
+# ============================================================
+# 3. DASHBOARD
 # ============================================================
 
 elif opcion_menu == "📈 Dashboard":

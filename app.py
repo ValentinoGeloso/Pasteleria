@@ -846,20 +846,20 @@ elif opcion_menu == "📈 Dashboard":
         st.subheader("📅 Evolución diaria")
 
         diario = (
-            df_periodo.groupby(df_periodo["fecha"].dt.date)
+            df_periodo.assign(Día=df_periodo["fecha"].dt.date)
+            .groupby("Día")
             .agg(
                 Facturación=("monto_total", "sum"),
                 Costo=("costo_total", "sum"),
                 Margen=("ganancia_limpia", "sum"),
             )
             .reset_index()
-            .rename(columns={"fecha": "Día"})
         )
 
         if not diario.empty:
             fig = px.bar(
                 diario,
-                x="fecha",
+                x="Día",
                 y=["Facturación", "Margen"],
                 barmode="group",
                 title="Facturación y margen bruto por día",

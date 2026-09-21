@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import unicodedata
+import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from supabase import create_client
@@ -418,12 +419,17 @@ ALIAS_COLUMNAS_VENTAS = {
     "producto": ["producto", "productos", "item", "articulo", "artículo", "detalle", "descripcion", "descripción", "venta"],
     "cantidad": ["cantidad", "cant", "cantidad vendida", "unidades", "uds", "qty"],
     "monto": ["monto", "monto total", "total", "importe", "precio", "precio total", "venta total", "facturacion", "facturación", "cobrado"],
-    "presentacion": ["presentacion", "presentación", "tipo", "formato", "unidad", "tamaño", "tamano"],
+    "presentacion": ["presentacion", "presentación", "formato", "unidad", "tamaño", "tamano"],
+    "tipo": ["tipo", "movimiento", "clase"],
 }
 
 
 def detectar_columna(df, tipo):
-    """Busca automáticamente una columna habitual del Excel."""
+    """Busca automáticamente una columna habitual del Excel.
+
+    Además del nombre, contempla el formato histórico de Dulce Mar:
+    Fecha | Tipo | Categoría | Detalle | Monto.
+    """
     if df is None or df.empty:
         return None
 
@@ -432,17 +438,34 @@ def detectar_columna(df, tipo):
         for col in df.columns
     }
 
-    for alias in ALIAS_COLUMNAS_VENTAS.get(tipo, []):
+    aliases = ALIAS_COLUMNAS_VENTAS.get(tipo, [])
+
+    # 1) Coincidencia exacta por nombre.
+    for alias in aliases:
         alias_n = clave_normalizada(alias)
         for col, col_n in normalizadas.items():
             if col_n == alias_n:
                 return col
 
-    for alias in ALIAS_COLUMNAS_VENTAS.get(tipo, []):
+    # 2) Coincidencia parcial.
+    for alias in aliases:
         alias_n = clave_normalizada(alias)
         for col, col_n in normalizadas.items():
             if alias_n in col_n or col_n in alias_n:
                 return col
+
+    # 3) Respaldo específico para el Excel de Dulce Mar:
+    #    Fecha | Tipo | Categoría | Detalle | Monto
+    columnas = list(df.columns)
+    if len(columnas) >= 5:
+        posiciones = {
+            "fecha": 0,
+            "monto": 4,
+            "producto": 3,
+        }
+        posicion = posiciones.get(tipo)
+        if posicion is not None and posicion < len(columnas):
+            return columnas[posicion]
 
     return None
 
@@ -584,8 +607,19 @@ def _producto_historico_guardado(producto):
 
 
 def _precio_historico_producto(producto, presentacion, cantidad=1):
+    # Precio de venta histórico aproximado para repartir el monto de una fila
+    # compuesta. Es independiente del costo de receta: acá queremos estimar
+    # cuánto se cobró por cada componente, no cuánto costó producirlo.
     if producto == "__BUDIN_HISTORICO_SIN_GUSTO__":
-        return costo_historico_generico_budin(presentacion) * numero(cantidad, 1)
+        if "porcion" in clave_normalizada(presentacion):
+            precio_unitario = 1000.0
+        else:
+            # En el historial se observan budines enteros a $12.000 y budín
+            # chico a $10.000. Como no siempre se indicó el tamaño, usamos
+            # $12.000 como referencia y dejamos que el monto real de la fila
+            # corrija la diferencia.
+            precio_unitario = 12000.0
+        return precio_unitario * numero(cantidad, 1)
     if producto not in st.session_state.RECETAS:
         return 0.0
     receta = st.session_state.RECETAS[producto]
@@ -625,6 +659,13 @@ def _segmento_historico(segmento, monto_segmento=None):
                 else:
                     qty, pres = 1, "Media Docena (6u)"
         return {"producto": "Chipa", "cantidad": qty, "presentacion": pres}
+
+    # Una anotación como "porc", "2porc" o "por. budin" siempre significa
+    # porciones de budín aunque la palabra "budin" no aparezca en ese segmento.
+    if re.search(r"(?:^|\d)\s*porc(?:iones?)?\s*$", n) or n in {"por", "porcion", "porciones"}:
+        m = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:porc(?:iones?)?|por|porcion|porciones)", n)
+        qty = int(float(m.group(1).replace(",", "."))) if m else 1
+        return {"producto": "__BUDIN_HISTORICO_SIN_GUSTO__", "cantidad": qty, "presentacion": "Porción"}
 
     # Budines: gusto no informado = producto histórico genérico.
     if "budin" in n:
@@ -701,15 +742,18 @@ def interpretar_detalle_historico(texto, monto_total):
 
     _resolver_cafe_generico(componentes, monto_total)
 
-    # Para una fila compuesta, repartir el precio según el precio de lista
-    # actual/histórico detectado. El último componente absorbe cualquier
-    # diferencia para que la suma conserve exactamente el Monto del Excel.
+    # Para una fila compuesta, repartir el monto cobrado entre sus componentes.
+    # Los productos conocidos conservan primero su precio de referencia; los
+    # componentes históricos inciertos (principalmente budín sin gusto) absorben
+    # el resto. Así también funcionan descuentos/promos sin rechazar la fila.
     precios = []
-    for c in componentes:
+    inciertos = []
+    for i, c in enumerate(componentes):
         if "precio_asignado" in c:
             base = c["precio_asignado"]
         elif c.get("precio_historico_incierto"):
             base = 0.0
+            inciertos.append(i)
         else:
             base = _precio_historico_producto(c["producto"], c["presentacion"], c["cantidad"])
         precios.append(max(numero(base), 0.0))
@@ -719,38 +763,63 @@ def interpretar_detalle_historico(texto, monto_total):
             return [], texto
         return [(componentes[0], float(monto_total))], None
 
-    suma = sum(precios)
-    if suma <= 0 or suma > numero(monto_total) + 0.01:
-        return [], texto
-
+    total = numero(monto_total)
     resultado = []
     acumulado = 0.0
-    inciertos = [i for i, c in enumerate(componentes) if c.get("precio_historico_incierto")]
-    for i, (c, base) in enumerate(zip(componentes, precios)):
-        if i in inciertos:
-            continue
-        precio = round(base, 2)
-        acumulado += precio
-        resultado.append((c, precio))
+
+    # Si hay componentes inciertos, primero cobramos los conocidos y les damos
+    # a los inciertos todo el remanente. Es especialmente útil para "cafe+porc"
+    # y "budin+chipa".
+    indices_conocidos = [i for i in range(len(componentes)) if i not in inciertos]
+    suma_conocidos = sum(precios[i] for i in indices_conocidos)
 
     if inciertos:
-        restante = round(numero(monto_total) - acumulado, 2)
-        if restante <= 0:
-            return [], texto
-        por_incierto = round(restante / len(inciertos), 2)
+        # Si los conocidos ya superan el total, aplicamos el descuento al último
+        # conocido para no inventar una venta por encima del monto real.
+        if suma_conocidos > total:
+            diferencia = suma_conocidos - total
+            ultimo = indices_conocidos[-1] if indices_conocidos else None
+            for i in indices_conocidos:
+                precio = precios[i]
+                if i == ultimo:
+                    precio = max(0.0, precio - diferencia)
+                resultado.append((componentes[i], round(precio, 2)))
+                acumulado += precio
+            if acumulado > total + 0.01:
+                return [], texto
+            restante = max(0.0, total - acumulado)
+        else:
+            for i in indices_conocidos:
+                precio = precios[i]
+                resultado.append((componentes[i], round(precio, 2)))
+                acumulado += precio
+            restante = max(0.0, total - acumulado)
+
+        por_incierto = restante / len(inciertos) if inciertos else 0.0
         for j, i in enumerate(inciertos):
-            c = componentes[i]
-            precio = restante - por_incierto * (len(inciertos) - 1) if j == len(inciertos) - 1 else por_incierto
-            resultado.append((c, round(precio, 2)))
+            precio = por_incierto
+            if j == len(inciertos) - 1:
+                precio = total - sum(p for _, p in resultado)
+            resultado.append((componentes[i], round(max(0.0, precio), 2)))
         return resultado, None
 
-    diferencia = round(numero(monto_total) - acumulado, 2)
-    if abs(diferencia) > 0.01:
-        if diferencia < 0:
-            return [], texto
-        c, precio = resultado[-1]
-        resultado[-1] = (c, round(precio + diferencia, 2))
+    # Sin componentes inciertos: usamos los precios de referencia y cualquier
+    # diferencia (descuento o recargo) se aplica al último componente.
+    if suma_conocidos <= 0:
+        return [], texto
+
+    diferencia = round(total - suma_conocidos, 2)
+    if diferencia < 0:
+        # Descuento: se aplica al último componente sin rechazar la venta.
+        i = len(componentes) - 1
+        precios[i] = max(0.0, precios[i] + diferencia)
+    else:
+        precios[-1] += diferencia
+
+    for c, precio in zip(componentes, precios):
+        resultado.append((c, round(precio, 2)))
     return resultado, None
+
 
 
 def _armar_fila_historica(fecha, detalle, monto, nombre_archivo, nombre_hoja, nro_fila, presentacion_extra=""):
@@ -816,19 +885,39 @@ def preparar_ventas_historicas_archivo(archivo):
 
         if not col_fecha or not col_producto or not col_monto:
             advertencias.append(
-                f"{nombre_archivo} / hoja '{nombre_hoja}': no se pudieron detectar Fecha + Detalle + Monto."
+                f"{nombre_archivo} / hoja '{nombre_hoja}': no se pudieron detectar Fecha + Detalle + Monto. "
+                f"Columnas encontradas: {', '.join(map(str, df.columns))}"
             )
             continue
 
+        # En el formato histórico de Dulce Mar, solo importamos filas de Ingreso.
+        col_tipo = detectar_columna(df, "tipo")
         for nro_fila, fila in df.iterrows():
+            if col_tipo:
+                tipo_fila = clave_normalizada(fila.get(col_tipo, ""))
+                if tipo_fila and tipo_fila not in {"ingreso", "venta", "ventas"}:
+                    continue
             fecha = pd.to_datetime(fila.get(col_fecha), errors="coerce", dayfirst=True)
             if pd.isna(fecha):
+                # Las filas vacías o de separación no se consideran error; si tienen
+                # contenido, sí avisamos para que el usuario pueda revisarlas.
+                valores = [str(v).strip() for v in fila.tolist() if str(v).strip() not in {"", "nan", "NaT"}]
+                if valores:
+                    advertencias.append(
+                        f"{nombre_archivo} / hoja '{nombre_hoja}' / fila {nro_fila + 2}: fecha no reconocida."
+                    )
                 continue
             detalle = str(fila.get(col_producto, "")).strip()
             if not detalle or detalle.lower() == "nan":
+                advertencias.append(
+                    f"{nombre_archivo} / hoja '{nombre_hoja}' / fila {nro_fila + 2}: falta el Detalle de la venta."
+                )
                 continue
             monto = numero(fila.get(col_monto), 0.0)
             if monto <= 0:
+                advertencias.append(
+                    f"{nombre_archivo} / hoja '{nombre_hoja}' / fila {nro_fila + 2}: monto vacío o no válido para '{detalle}'."
+                )
                 continue
 
             nuevas, avisos = _armar_fila_historica(
@@ -1462,8 +1551,18 @@ elif opcion_menu == "📥 Importar Ventas Históricas":
         else:
             st.warning(
                 "No se detectaron ventas importables todavía. "
-                "Revisá los avisos o subí otro archivo."
+                "Revisá los avisos de abajo: ahí se indica exactamente qué archivo, hoja y fila no se pudo interpretar."
             )
+
+        # Mostrar los avisos también cuando no se detectó ninguna venta. Antes
+        # quedaban ocultos dentro del bloque de vista previa y parecía que el
+        # Excel simplemente "no funcionaba".
+        if todas_las_advertencias:
+            with st.expander(f"⚠️ Revisar {len(todas_las_advertencias)} aviso(s) del importador", expanded=not todas_las_filas):
+                for aviso in todas_las_advertencias[:200]:
+                    st.write("• " + aviso)
+                if len(todas_las_advertencias) > 200:
+                    st.caption("Se muestran los primeros 200 avisos.")
 
         if not todas_las_advertencias and not todas_las_filas:
             st.caption(

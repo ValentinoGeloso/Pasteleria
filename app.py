@@ -579,32 +579,244 @@ def costo_venta_historica(producto, presentacion, cantidad):
     return costo, not bool(faltantes)
 
 
+def _producto_historico_guardado(producto):
+    return "Budines (gusto no registrado)" if producto == "__BUDIN_HISTORICO_SIN_GUSTO__" else producto
+
+
+def _precio_historico_producto(producto, presentacion, cantidad=1):
+    if producto == "__BUDIN_HISTORICO_SIN_GUSTO__":
+        return costo_historico_generico_budin(presentacion) * numero(cantidad, 1)
+    if producto not in st.session_state.RECETAS:
+        return 0.0
+    receta = st.session_state.RECETAS[producto]
+    precios = receta.get("precios") or {}
+    if presentacion in precios:
+        return numero(precios[presentacion]) * numero(cantidad, 1)
+    return 0.0
+
+
+def _segmento_historico(segmento, monto_segmento=None):
+    """Interpreta un componente del detalle del Excel."""
+    original = str(segmento or "").strip()
+    n = clave_normalizada(original)
+    if not n:
+        return None
+
+    # Cantidades explícitas de chipa. En este historial "chipa" sin aclaración
+    # significa una bolsa de 6 unidades.
+    if "chipa" in n:
+        if "docena" in n:
+            qty, pres = 1, "Docena (12u)"
+        elif re.search(r"1\s*/\s*2\s*doc", n) or "media docena" in n:
+            qty, pres = 1, "Media Docena (6u)"
+        else:
+            m = re.search(r"(\d+(?:[.,]\d+)?)\s*bolsas?", n)
+            # "chipa 5 unidades" es una excepción: son 5 unidades, no 5 bolsas.
+            mu = re.search(r"(\d+(?:[.,]\d+)?)\s*unidades?", n)
+            if mu:
+                qty, pres = int(float(mu.group(1).replace(",", "."))), "1 Unidad"
+            else:
+                if not m:
+                    m = re.search(r"chipa\s*x?\s*(\d+(?:[.,]\d+)?)", n)
+                if not m:
+                    m = re.search(r"(\d+(?:[.,]\d+)?)\s*chipa", n)
+                if m:
+                    qty, pres = int(float(m.group(1).replace(",", "."))), "Media Docena (6u)"
+                else:
+                    qty, pres = 1, "Media Docena (6u)"
+        return {"producto": "Chipa", "cantidad": qty, "presentacion": pres}
+
+    # Budines: gusto no informado = producto histórico genérico.
+    if "budin" in n:
+        if "porcion" in n or "porciones" in n or "porc" in n or "por." in original.lower():
+            m = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:porciones?|porc|por\.)", n)
+            qty = int(float(m.group(1).replace(",", "."))) if m else 1
+            return {"producto": "__BUDIN_HISTORICO_SIN_GUSTO__", "cantidad": qty, "presentacion": "Porción"}
+        m = re.search(r"(\d+(?:[.,]\d+)?)\s*budines?", n)
+        qty = int(float(m.group(1).replace(",", "."))) if m else 1
+        # En el Excel "budin chico" y "budin grande" son enteros; el
+        # importe real de la fila se usa luego para conservar el precio cobrado.
+        return {"producto": "__BUDIN_HISTORICO_SIN_GUSTO__", "cantidad": qty, "presentacion": "Entero"}
+
+    # Café.
+    if "cafe chico" in n:
+        m = re.search(r"(\d+(?:[.,]\d+)?)\s*cafe\s*chico", n)
+        qty = int(float(m.group(1).replace(",", "."))) if m else 1
+        return {"producto": "Cafe chico", "cantidad": qty, "presentacion": "Entero"}
+    if "cafe grande" in n:
+        m = re.search(r"(\d+(?:[.,]\d+)?)\s*cafe\s*grande", n)
+        qty = int(float(m.group(1).replace(",", "."))) if m else 1
+        return {"producto": "Cafe grande", "cantidad": qty, "presentacion": "Entero"}
+    if re.search(r"\bcafe\b", n):
+        return {"producto": "__CAFE_GENERICO__", "cantidad": 1, "presentacion": "Entero"}
+
+    # Alfajores.
+    if "alf" in n or "alfajor" in n:
+        if "docena" in n or re.search(r"\bdoc\b", n):
+            return {"producto": "Alfajores de maicena", "cantidad": 1, "presentacion": "Docena (12u)", "precio_historico_incierto": True}
+        if "media docena" in n:
+            return {"producto": "Alfajores de maicena", "cantidad": 1, "presentacion": "Media Docena (6u)", "precio_historico_incierto": True}
+        return {"producto": "Alfajores de maicena", "cantidad": 1, "presentacion": "1 Unidad", "precio_historico_incierto": True}
+
+    return None
+
+
+def _resolver_cafe_generico(componentes, monto_total):
+    """Resuelve 'café' usando la combinación cuyo precio coincide con el total."""
+    for c in componentes:
+        if c["producto"] != "__CAFE_GENERICO__":
+            continue
+        otros = sum(_precio_historico_producto(x["producto"], x["presentacion"], x["cantidad"])
+                    for x in componentes if x is not c)
+        restante = numero(monto_total) - otros
+        if abs(restante - 2000) <= 1:
+            c.update(producto="Cafe chico", precio_asignado=2000.0)
+        elif abs(restante - 3000) <= 1:
+            c.update(producto="Cafe grande", precio_asignado=3000.0)
+        else:
+            # Si el precio histórico no coincide exactamente, usamos la opción
+            # más cercana y luego conservamos el total de la fila.
+            c.update(producto="Cafe grande" if restante >= 2500 else "Cafe chico")
+
+
+def interpretar_detalle_historico(texto, monto_total):
+    """Convierte una fila como 'cafe+chipa' en uno o varios productos."""
+    texto = str(texto or "").strip()
+    if not texto:
+        return []
+
+    partes = [p.strip() for p in re.split(r"\s*\+\s*", texto) if p.strip()]
+    componentes = []
+    for parte in partes:
+        c = _segmento_historico(parte, monto_total)
+        if c:
+            componentes.append(c)
+        else:
+            # Casos pegados como "chipa4bolsas" ya son tratados arriba. Si
+            # aparece una parte nueva, la devolvemos como no reconocida.
+            return [], parte
+
+    if not componentes:
+        return [], texto
+
+    _resolver_cafe_generico(componentes, monto_total)
+
+    # Para una fila compuesta, repartir el precio según el precio de lista
+    # actual/histórico detectado. El último componente absorbe cualquier
+    # diferencia para que la suma conserve exactamente el Monto del Excel.
+    precios = []
+    for c in componentes:
+        if "precio_asignado" in c:
+            base = c["precio_asignado"]
+        elif c.get("precio_historico_incierto"):
+            base = 0.0
+        else:
+            base = _precio_historico_producto(c["producto"], c["presentacion"], c["cantidad"])
+        precios.append(max(numero(base), 0.0))
+
+    if len(componentes) == 1:
+        if componentes[0]["producto"] == "__CAFE_GENERICO__":
+            return [], texto
+        return [(componentes[0], float(monto_total))], None
+
+    suma = sum(precios)
+    if suma <= 0 or suma > numero(monto_total) + 0.01:
+        return [], texto
+
+    resultado = []
+    acumulado = 0.0
+    inciertos = [i for i, c in enumerate(componentes) if c.get("precio_historico_incierto")]
+    for i, (c, base) in enumerate(zip(componentes, precios)):
+        if i in inciertos:
+            continue
+        precio = round(base, 2)
+        acumulado += precio
+        resultado.append((c, precio))
+
+    if inciertos:
+        restante = round(numero(monto_total) - acumulado, 2)
+        if restante <= 0:
+            return [], texto
+        por_incierto = round(restante / len(inciertos), 2)
+        for j, i in enumerate(inciertos):
+            c = componentes[i]
+            precio = restante - por_incierto * (len(inciertos) - 1) if j == len(inciertos) - 1 else por_incierto
+            resultado.append((c, round(precio, 2)))
+        return resultado, None
+
+    diferencia = round(numero(monto_total) - acumulado, 2)
+    if abs(diferencia) > 0.01:
+        if diferencia < 0:
+            return [], texto
+        c, precio = resultado[-1]
+        resultado[-1] = (c, round(precio + diferencia, 2))
+    return resultado, None
+
+
+def _armar_fila_historica(fecha, detalle, monto, nombre_archivo, nombre_hoja, nro_fila, presentacion_extra=""):
+    """Genera las filas de ventas que corresponden a una fila del Excel."""
+    interpretadas, no_reconocida = interpretar_detalle_historico(detalle, monto)
+    if no_reconocida:
+        return [], [
+            f"{nombre_archivo} / {nombre_hoja} / fila {nro_fila + 2}: "
+            f"no se pudo interpretar '{detalle}' (parte no reconocida: '{no_reconocida}')."
+        ]
+
+    filas, avisos = [], []
+    for c, precio in interpretadas:
+        producto = c["producto"]
+        cantidad = int(c["cantidad"])
+        presentacion = c["presentacion"]
+        if presentacion_extra:
+            presentacion = detectar_presentacion_historica(
+                f"{detalle} {presentacion_extra}", producto, precio, cantidad
+            )
+
+        producto_guardado = _producto_historico_guardado(producto)
+        costo, costo_ok = costo_venta_historica(producto, presentacion, cantidad)
+        if not costo_ok:
+            costo = 0.0
+            avisos.append(
+                f"{nombre_archivo} / {nombre_hoja} / fila {nro_fila + 2}: "
+                f"no se pudo calcular costo para '{producto_guardado}'. Se importará con costo $0."
+            )
+
+        filas.append({
+            "fecha": fecha.date(),
+            "producto": producto_guardado,
+            "cantidad": cantidad,
+            "tipo_venta": presentacion,
+            "monto_total": float(precio),
+            "costo_total": float(costo),
+            "ganancia_limpia": float(precio - costo),
+            "_archivo": nombre_archivo,
+            "_hoja": nombre_hoja,
+            "_fila": int(nro_fila + 2),
+        })
+    return filas, avisos
+
+
 def preparar_ventas_historicas_archivo(archivo):
-    """Lee todas las hojas del Excel y devuelve ventas normalizadas + advertencias."""
+    """Lee todas las hojas del Excel y convierte cada fila en una o más ventas."""
     nombre_archivo = getattr(archivo, "name", "archivo")
     hojas = pd.read_excel(archivo, sheet_name=None)
-    filas = []
-    advertencias = []
+    filas, advertencias = [], []
 
     for nombre_hoja, df in hojas.items():
         if df is None or df.empty:
             continue
-
-        # Elimina columnas completamente vacías y filas completamente vacías.
         df = df.dropna(axis=1, how="all").dropna(axis=0, how="all").copy()
         if df.empty:
             continue
 
         col_fecha = detectar_columna(df, "fecha")
         col_producto = detectar_columna(df, "producto")
-        col_cantidad = detectar_columna(df, "cantidad")
         col_monto = detectar_columna(df, "monto")
         col_presentacion = detectar_columna(df, "presentacion")
 
         if not col_fecha or not col_producto or not col_monto:
             advertencias.append(
-                f"{nombre_archivo} / hoja '{nombre_hoja}': no se pudieron detectar "
-                "Fecha + Producto + Monto. Se omitió esa hoja."
+                f"{nombre_archivo} / hoja '{nombre_hoja}': no se pudieron detectar Fecha + Detalle + Monto."
             )
             continue
 
@@ -612,66 +824,19 @@ def preparar_ventas_historicas_archivo(archivo):
             fecha = pd.to_datetime(fila.get(col_fecha), errors="coerce", dayfirst=True)
             if pd.isna(fecha):
                 continue
-
-            texto_producto = str(fila.get(col_producto, "")).strip()
-            if not texto_producto or texto_producto.lower() == "nan":
+            detalle = str(fila.get(col_producto, "")).strip()
+            if not detalle or detalle.lower() == "nan":
                 continue
-
-            producto = encontrar_producto_historico(texto_producto)
-            if not producto:
-                advertencias.append(
-                    f"{nombre_archivo} / {nombre_hoja} / fila {nro_fila + 2}: "
-                    f"producto no reconocido: '{texto_producto}'."
-                )
-                continue
-
             monto = numero(fila.get(col_monto), 0.0)
             if monto <= 0:
                 continue
 
-            cantidad = numero(fila.get(col_cantidad), 0.0) if col_cantidad else 0.0
-            if cantidad <= 0:
-                cantidad = extraer_cantidad_desde_texto(texto_producto) or 1.0
-
-            presentacion_texto = str(fila.get(col_presentacion, "")) if col_presentacion else ""
-            presentacion = detectar_presentacion_historica(
-                f"{texto_producto} {presentacion_texto}",
-                producto,
-                monto,
-                cantidad,
+            nuevas, avisos = _armar_fila_historica(
+                fecha, detalle, monto, nombre_archivo, nombre_hoja, nro_fila,
+                str(fila.get(col_presentacion, "")) if col_presentacion else "",
             )
-
-            costo, costo_ok = costo_venta_historica(
-                producto,
-                presentacion,
-                cantidad,
-            )
-
-            producto_guardado = (
-                "Budines (gusto no registrado)"
-                if producto == "__BUDIN_HISTORICO_SIN_GUSTO__"
-                else producto
-            )
-
-            if not costo_ok:
-                advertencias.append(
-                    f"{nombre_archivo} / {nombre_hoja} / fila {nro_fila + 2}: "
-                    f"no se pudo calcular costo para '{producto_guardado}'. Se usará costo $0."
-                )
-                costo = 0.0
-
-            filas.append({
-                "fecha": fecha.date(),
-                "producto": producto_guardado,
-                "cantidad": int(round(cantidad)),
-                "tipo_venta": presentacion,
-                "monto_total": float(monto),
-                "costo_total": float(costo),
-                "ganancia_limpia": float(monto - costo),
-                "_archivo": nombre_archivo,
-                "_hoja": nombre_hoja,
-                "_fila": int(nro_fila + 2),
-            })
+            filas.extend(nuevas)
+            advertencias.extend(avisos)
 
     return filas, advertencias
 

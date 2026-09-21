@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import unicodedata
 import re
+from collections import Counter
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from supabase import create_client
@@ -1440,12 +1441,14 @@ elif opcion_menu == "📥 Importar Ventas Históricas":
         if todas_las_filas:
             df_importacion = pd.DataFrame(todas_las_filas)
 
-            # Evita duplicados dentro de los propios archivos.
+            # Una misma combinación de fecha/producto/cantidad/precio puede ser una
+            # venta perfectamente válida más de una vez el mismo día. Por eso NO
+            # eliminamos duplicados por contenido. En cambio, comparamos cantidades
+            # (ocurrencias) contra Supabase: si ya existe 1 venta idéntica y el Excel
+            # trae 2, se conserva 1 como nueva. Esto también evita volver a cargar
+            # indefinidamente el mismo Excel sin borrar ventas legítimas.
             df_importacion["_firma"] = df_importacion.apply(firma_venta_historica, axis=1)
-            duplicadas_archivos = int(df_importacion["_firma"].duplicated().sum())
-            df_importacion = df_importacion.drop_duplicates("_firma", keep="first").copy()
 
-            # Comparamos contra las ventas que ya están guardadas.
             try:
                 existentes = (
                     supabase.table("ventas")
@@ -1454,20 +1457,27 @@ elif opcion_menu == "📥 Importar Ventas Históricas":
                     .data
                     or []
                 )
-                firmas_existentes = {
-                    firma_venta_historica(x)
-                    for x in existentes
-                }
+                conteo_existentes = Counter(firma_venta_historica(x) for x in existentes)
             except Exception as err:
-                firmas_existentes = set()
+                conteo_existentes = Counter()
                 st.warning(
-                    "No se pudo verificar duplicados contra Supabase. "
+                    "No se pudo verificar coincidencias contra Supabase. "
                     f"Revisá antes de confirmar. Detalle: {err}"
                 )
 
-            df_importacion["_existente"] = df_importacion["_firma"].isin(firmas_existentes)
+            # Marca solamente tantas ocurrencias como ya existan en Supabase.
+            # Ejemplo: si el Excel trae 2 ventas idénticas y Supabase tiene 1,
+            # una queda como 'ya cargada' y la otra como nueva.
+            ocurrencias_vistas = Counter()
+            estados_existencia = []
+            for firma in df_importacion["_firma"]:
+                ocurrencias_vistas[firma] += 1
+                ya_existia = ocurrencias_vistas[firma] <= conteo_existentes.get(firma, 0)
+                estados_existencia.append(ya_existia)
+
+            df_importacion["_existente"] = estados_existencia
             nuevas = df_importacion[~df_importacion["_existente"]].copy()
-            repetidas = int(df_importacion["_existente"].sum()) + duplicadas_archivos
+            repetidas = int(df_importacion["_existente"].sum())
 
             st.markdown("---")
             st.subheader("🔎 Vista previa")
@@ -1475,7 +1485,7 @@ elif opcion_menu == "📥 Importar Ventas Históricas":
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Filas detectadas", len(df_importacion))
             c2.metric("Nuevas para cargar", len(nuevas))
-            c3.metric("Duplicadas / ya cargadas", repetidas)
+            c3.metric("Ya cargadas", repetidas)
             c4.metric("Facturación nueva", dinero(nuevas["monto_total"].sum() if not nuevas.empty else 0))
 
             # Resumen especialmente útil para revisar los budines históricos.
@@ -1497,7 +1507,7 @@ elif opcion_menu == "📥 Importar Ventas Históricas":
             )
 
             st.caption(
-                "Los costos y márgenes de la importación se reconstruyen con las recetas/insumos "
+                "Las ventas con la misma fecha, producto, cantidad, presentación y monto pueden aparecer varias veces: se conservan porque pueden ser operaciones distintas. Solo se omite una ocurrencia cuando esa misma cantidad de coincidencias ya existe en Supabase. Los costos y márgenes de la importación se reconstruyen con las recetas/insumos "
                 "actualmente cargados. En budines sin gusto se usa el costo promedio de los budines conocidos."
             )
 
@@ -1525,7 +1535,7 @@ elif opcion_menu == "📥 Importar Ventas Históricas":
                         st.caption("Se muestran los primeros 100 avisos.")
 
             if nuevas.empty:
-                st.success("No hay ventas nuevas para importar: todo lo detectado ya está cargado o era repetido dentro de los archivos.")
+                st.success("No hay ventas nuevas para importar: todas las coincidencias detectadas ya están cargadas en Supabase.")
             else:
                 if st.button(
                     f"💾 Importar {len(nuevas)} ventas nuevas",

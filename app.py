@@ -868,7 +868,18 @@ def _armar_fila_historica(fecha, detalle, monto, nombre_archivo, nombre_hoja, nr
 def preparar_ventas_historicas_archivo(archivo):
     """Lee todas las hojas del Excel y convierte cada fila en una o más ventas."""
     nombre_archivo = getattr(archivo, "name", "archivo")
-    hojas = pd.read_excel(archivo, sheet_name=None)
+    try:
+        # Los .xlsx/.xls necesitan un motor de lectura instalado.
+        # Para .xlsx usamos openpyxl explícitamente para que el error sea claro.
+        if nombre_archivo.lower().endswith(".xlsx"):
+            hojas = pd.read_excel(archivo, sheet_name=None, engine="openpyxl")
+        else:
+            hojas = pd.read_excel(archivo, sheet_name=None)
+    except ImportError as err:
+        raise RuntimeError(
+            "Falta la dependencia 'openpyxl' para leer archivos Excel (.xlsx). "
+            "Instalala con: python -m pip install openpyxl y reiniciá Streamlit."
+        ) from err
     filas, advertencias = [], []
 
     for nombre_hoja, df in hojas.items():

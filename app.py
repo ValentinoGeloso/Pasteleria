@@ -8,16 +8,9 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from supabase import create_client
 
+
 # ============================================================
-# DULCE MAR - SISTEMA INTEGRAL
-# Versión 2.1 - robustez y compatibilidad
-# Mejoras principales:
-# - Conserva las tablas existentes: insumos, productos y ventas.
-# - Agrega gastos_operativos y mermas.
-# - Las ventas históricas guardan su costo al momento de vender.
-# - Packaging sigue siendo un costo directo de la receta.
-# - "Ganancia limpia" de la base existente se interpreta como
-#   margen bruto/directo para no romper datos históricos.
+# CONFIGURACIÓN DE PÁGINA
 # ============================================================
 
 st.set_page_config(
@@ -27,7 +20,74 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+
 # ============================================================
+# AUTENTICACIÓN - ACCESO PRIVADO
+# ============================================================
+
+USUARIOS_AUTORIZADOS = {
+    "Valentinofabriciogelosorodio@gmail.com",
+    "martinaprestileoortiz@gmail.com",
+}
+
+if not st.user.is_logged_in:
+    st.title("🧁 Dulce Mar")
+    st.subheader("Sistema privado")
+    st.write("Iniciá sesión con una cuenta autorizada para continuar.")
+
+    if st.button(
+        "🔐 Iniciar sesión con Google",
+        use_container_width=True
+    ):
+        st.login()
+
+    st.stop()
+
+email_usuario = st.user.email.lower().strip()
+
+usuarios_autorizados_normalizados = {
+    email.lower().strip()
+    for email in USUARIOS_AUTORIZADOS
+}
+
+if email_usuario not in usuarios_autorizados_normalizados:
+    st.error("⛔ Esta cuenta no tiene autorización para acceder a Dulce Mar.")
+    st.write(f"Cuenta detectada: `{email_usuario}`")
+
+    if st.button(
+        "🚪 Cerrar sesión",
+        use_container_width=True
+    ):
+        st.logout()
+
+    st.stop()
+
+
+# ============================================================
+# CONEXIÓN A SUPABASE
+# ============================================================
+
+@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+try:
+    supabase = init_supabase()
+    conexion_ok = True
+except Exception:
+    supabase = None
+    conexion_ok = False
+
+if not conexion_ok:
+    st.error(
+        "No se pudo conectar con Supabase. "
+        "Revisá SUPABASE_URL y SUPABASE_KEY en los Secrets de Streamlit."
+    )
+    st.stop()
+    
+# ============================================================   
 # DATOS ORIGINALES - NO MODIFICAR
 # ============================================================
 

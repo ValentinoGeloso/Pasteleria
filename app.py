@@ -3,11 +3,38 @@ import pandas as pd
 import plotly.express as px
 import unicodedata
 import re
+import copy
 from collections import Counter
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from supabase import create_client
 
+
+# ============================================================
+# DATOS FICTICIOS PARA MODO INVITADO
+# ============================================================
+
+DEMO_INSUMOS_DEFAULT = {
+    "Harina Demo (kg)": 1500.0,
+    "Azúcar Demo (kg)": 1000.0,
+    "Manteca Demo (kg)": 5000.0,
+    "Huevo Demo (unidad)": 250.0,
+    "Chocolate Demo (kg)": 6000.0,
+}
+
+DEMO_RECETAS_DEFAULT = {
+    "Budín Demo": {
+        "rinde": 10,
+        "tipo": "porciones",
+        "precios": {"Porción": 1500.0, "Entero": 11000.0},
+        "ingredientes": {
+            "Harina Demo (kg)": 0.250,
+            "Azúcar Demo (kg)": 0.180,
+            "Manteca Demo (kg)": 0.100,
+            "Huevo Demo (unidad)": 2,
+        },
+    }
+}
 
 # ============================================================
 # CONFIGURACIÓN DE PÁGINA
@@ -22,7 +49,7 @@ st.set_page_config(
 
 
 # ============================================================
-# AUTENTICACIÓN - ACCESO PRIVADO
+# ACCESO: MODO PRIVADO / MODO INVITADO
 # ============================================================
 
 USUARIOS_AUTORIZADOS = {
@@ -30,63 +57,75 @@ USUARIOS_AUTORIZADOS = {
     "martinaprestileoortiz@gmail.com",
 }
 
-if not st.user.is_logged_in:
-    st.title("🧁 Dulce Mar")
-    st.subheader("Sistema privado")
-    st.write("Iniciá sesión con una cuenta autorizada para continuar.")
-
-    if st.button(
-        "🔐 Iniciar sesión con Google",
-        use_container_width=True
-    ):
-        st.login()
-
-    st.stop()
-
-email_usuario = st.user.email.lower().strip()
-
 usuarios_autorizados_normalizados = {
     email.lower().strip()
     for email in USUARIOS_AUTORIZADOS
 }
 
-if email_usuario not in usuarios_autorizados_normalizados:
-    st.error("⛔ Esta cuenta no tiene autorización para acceder a Dulce Mar.")
-    st.write(f"Cuenta detectada: `{email_usuario}`")
-
-    if st.button(
-        "🚪 Cerrar sesión",
-        use_container_width=True
-    ):
-        st.logout()
-
-    st.stop()
+if "modo_invitado" not in st.session_state:
+    st.session_state.modo_invitado = False
 
 
-# ============================================================
-# CONEXIÓN A SUPABASE
-# ============================================================
+def limpiar_datos_sesion_app():
+    """Limpia datos de aplicación al cambiar de modo."""
+    for clave in [
+        "INSUMOS",
+        "RECETAS",
+        "_demo_cargado",
+        "pagina_historial_ventas",
+    ]:
+        st.session_state.pop(clave, None)
 
-@st.cache_resource
-def init_supabase():
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
 
-try:
-    supabase = init_supabase()
-    conexion_ok = True
-except Exception:
-    supabase = None
-    conexion_ok = False
+def entrar_modo_invitado():
+    limpiar_datos_sesion_app()
+    st.session_state.modo_invitado = True
+    st.rerun()
 
-if not conexion_ok:
-    st.error(
-        "No se pudo conectar con Supabase. "
-        "Revisá SUPABASE_URL y SUPABASE_KEY en los Secrets de Streamlit."
-    )
-    st.stop()
-    
+
+def salir_modo_invitado():
+    limpiar_datos_sesion_app()
+    st.session_state.modo_invitado = False
+    st.rerun()
+
+
+# El modo invitado tiene prioridad: no requiere autenticación.
+if not st.session_state.modo_invitado:
+    if not st.user.is_logged_in:
+        st.title("🧁 Dulce Mar")
+        st.subheader("Sistema de gestión")
+        st.write(
+            "Iniciá sesión con una cuenta autorizada para acceder "
+            "al sistema privado, o probá la demostración."
+        )
+
+        col_login, col_demo = st.columns(2)
+        with col_login:
+            if st.button("🔐 Iniciar sesión con Google", use_container_width=True):
+                st.login()
+        with col_demo:
+            if st.button("👀 Ver demostración", use_container_width=True):
+                entrar_modo_invitado()
+        st.stop()
+
+    email_usuario = (getattr(st.user, "email", "") or "").lower().strip()
+
+    if email_usuario not in usuarios_autorizados_normalizados:
+        st.error("⛔ Esta cuenta no tiene autorización para acceder a Dulce Mar.")
+        st.write(f"Cuenta detectada: `{email_usuario}`")
+
+        col_demo, col_logout = st.columns(2)
+        with col_demo:
+            if st.button("👀 Continuar como invitado", use_container_width=True):
+                entrar_modo_invitado()
+        with col_logout:
+            if st.button("🚪 Cerrar sesión", use_container_width=True):
+                st.logout()
+        st.stop()
+
+modo_invitado = st.session_state.modo_invitado
+
+
 # ============================================================   
 # DATOS ORIGINALES - NO MODIFICAR
 # ============================================================
@@ -177,7 +216,10 @@ def hoy_argentina():
 
 # ============================================================
 # SUPABASE
+# SOLO SE INICIALIZA EN MODO PRIVADO
 # ============================================================
+
+supabase = None
 
 @st.cache_resource
 def init_supabase():
@@ -185,20 +227,20 @@ def init_supabase():
     key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
-try:
-    supabase = init_supabase()
-    conexion_ok = True
-except Exception:
-    supabase = None
-    conexion_ok = False
+if not modo_invitado:
+    try:
+        supabase = init_supabase()
+        conexion_ok = True
+    except Exception:
+        supabase = None
+        conexion_ok = False
 
-if not conexion_ok:
-    st.error(
-        "No se pudo conectar con Supabase. "
-        "Revisá SUPABASE_URL y SUPABASE_KEY en los Secrets de Streamlit."
-    )
-    st.stop()
-
+    if not conexion_ok:
+        st.error(
+            "No se pudo conectar con Supabase. "
+            "Revisá SUPABASE_URL y SUPABASE_KEY en los Secrets de Streamlit."
+        )
+        st.stop()
 # ============================================================
 # ESTILO
 # ============================================================
@@ -386,11 +428,25 @@ def obtener_recetas():
         return {}
 
 
-if "INSUMOS" not in st.session_state:
-    st.session_state.INSUMOS = obtener_insumos()
+# ============================================================
+# CARGA DE DATOS SEGÚN EL MODO
+# ============================================================
 
-if "RECETAS" not in st.session_state:
-    st.session_state.RECETAS = obtener_recetas()
+if modo_invitado:
+    # Demo: solamente memoria de la sesión actual.
+    if (
+        "INSUMOS" not in st.session_state
+        or not st.session_state.get("_demo_cargado", False)
+    ):
+        st.session_state.INSUMOS = copy.deepcopy(DEMO_INSUMOS_DEFAULT)
+        st.session_state.RECETAS = copy.deepcopy(DEMO_RECETAS_DEFAULT)
+        st.session_state._demo_cargado = True
+else:
+    # Privado: datos reales desde Supabase.
+    if "INSUMOS" not in st.session_state:
+        st.session_state.INSUMOS = obtener_insumos()
+    if "RECETAS" not in st.session_state:
+        st.session_state.RECETAS = obtener_recetas()
 
 # ============================================================
 # CÁLCULOS DE COSTOS
@@ -1021,7 +1077,13 @@ def firma_venta_historica(row):
 @st.dialog("✅ Producto guardado")
 def modal_producto_guardado(nombre):
     st.success(f"**{nombre}** fue guardado correctamente.")
-    st.write("Ya está disponible para ventas y cálculos.")
+    if modo_invitado:
+        st.info(
+            "👀 Este producto pertenece únicamente a la demostración "
+            "y no se guardó en la base real."
+        )
+    else:
+        st.write("Ya está disponible para ventas y cálculos.")
     if st.button("Entendido", use_container_width=True):
         st.rerun()
 
@@ -1030,14 +1092,37 @@ def modal_producto_guardado(nombre):
 # ============================================================
 
 st.sidebar.title("🧁 Dulce Mar")
-st.sidebar.caption("Sistema de gestión")
 
-if st.sidebar.button("🔄 Recargar datos", use_container_width=True):
-    refrescar_datos()
+if modo_invitado:
+    st.sidebar.caption("👀 Modo demostración")
+    st.sidebar.info(
+        "Datos ficticios. Los cambios se guardan solo en esta sesión "
+        "y no modifican la base real."
+    )
 
-opcion_menu = st.sidebar.radio(
-    "Navegación:",
-    [
+    if st.sidebar.button("↩️ Restablecer demostración", use_container_width=True):
+        limpiar_datos_sesion_app()
+        st.session_state.modo_invitado = True
+        st.rerun()
+
+    if st.sidebar.button("🔐 Volver al modo privado", use_container_width=True):
+        salir_modo_invitado()
+
+    opciones_menu = [
+        "🏷️ Productos y Recetas",
+        "🛒 Insumos y Costos",
+        "⚙️ Calculadora de Costos",
+    ]
+else:
+    st.sidebar.caption("🔒 Sistema privado")
+
+    if st.sidebar.button("🔄 Recargar datos", use_container_width=True):
+        refrescar_datos()
+
+    if st.sidebar.button("👀 Ver demostración", use_container_width=True):
+        entrar_modo_invitado()
+
+    opciones_menu = [
         "📊 Cargar Venta Diaria",
         "📥 Importar Ventas Históricas",
         "📈 Dashboard",
@@ -1046,8 +1131,15 @@ opcion_menu = st.sidebar.radio(
         "🧾 Gastos Operativos",
         "🗑️ Mermas",
         "⚙️ Calculadora de Costos",
-    ],
-)
+    ]
+
+opcion_menu = st.sidebar.radio("Navegación:", opciones_menu)
+
+if modo_invitado:
+    st.info(
+        "👀 **Modo demostración:** los productos, recetas e insumos son ficticios. "
+        "Nada de lo que hagas acá modifica la información real de Dulce Mar."
+    )
 
 # ============================================================
 # 1. CARGAR VENTA
@@ -2023,15 +2115,19 @@ elif opcion_menu == "🏷️ Productos y Recetas":
                                 nuevo_precio
                             )
 
-                            supabase.table("productos").update({
-                                "precios": nuevos_precios
-                            }).eq("nombre", prod_mod).execute()
+                            if modo_invitado:
+                                st.session_state.RECETAS[prod_mod]["precios"] = nuevos_precios
+                                st.success(
+                                    "Precio actualizado en modo demostración. "
+                                    "No se modificó la base real."
+                                )
+                            else:
+                                supabase.table("productos").update({
+                                    "precios": nuevos_precios
+                                }).eq("nombre", prod_mod).execute()
 
-                            st.session_state.RECETAS[
-                                prod_mod
-                            ]["precios"] = nuevos_precios
-
-                            st.success("Precio actualizado.")
+                                st.session_state.RECETAS[prod_mod]["precios"] = nuevos_precios
+                                st.success("Precio actualizado.")
                             st.rerun()
 
                         except Exception as err:
@@ -2227,25 +2323,23 @@ elif opcion_menu == "🏷️ Productos y Recetas":
             }
 
             try:
-                supabase.table("productos").insert(
-                    registro
-                ).execute()
-
-                st.session_state.RECETAS[
-                    nombre_limpio
-                ] = {
+                datos_producto = {
                     "rinde": int(rinde_prod),
                     "tipo": tipo_rinde,
                     "precios": precios,
                     "ingredientes": dict_ingredientes_nuevo,
                 }
 
+                if modo_invitado:
+                    st.session_state.RECETAS[nombre_limpio] = copy.deepcopy(datos_producto)
+                else:
+                    supabase.table("productos").insert(registro).execute()
+                    st.session_state.RECETAS[nombre_limpio] = copy.deepcopy(datos_producto)
+
                 modal_producto_guardado(nombre_limpio)
 
             except Exception as err:
-                st.error(
-                    f"No se pudo guardar el producto: {err}"
-                )
+                st.error(f"No se pudo guardar el producto: {err}")
 
     # ---------------- ELIMINAR ----------------
     with tab3:
@@ -2273,22 +2367,18 @@ elif opcion_menu == "🏷️ Productos y Recetas":
                 disabled=not confirmar,
             ):
                 try:
-                    supabase.table("productos").delete().eq(
-                        "nombre",
-                        prod_eliminar,
-                    ).execute()
-
-                    del st.session_state.RECETAS[
-                        prod_eliminar
-                    ]
-
-                    st.success("Producto eliminado.")
+                    if modo_invitado:
+                        del st.session_state.RECETAS[prod_eliminar]
+                        st.success("Producto eliminado de la demostración.")
+                    else:
+                        supabase.table("productos").delete().eq(
+                            "nombre", prod_eliminar,
+                        ).execute()
+                        del st.session_state.RECETAS[prod_eliminar]
+                        st.success("Producto eliminado.")
                     st.rerun()
-
                 except Exception as err:
-                    st.error(
-                        f"No se pudo eliminar: {err}"
-                    )
+                    st.error(f"No se pudo eliminar: {err}")
 
     # ---------------- RENTABILIDAD ----------------
     with tab4:
@@ -2400,20 +2490,20 @@ elif opcion_menu == "🛒 Insumos y Costos":
                     type="primary",
                 ):
                     try:
-                        supabase.table("insumos").update({
-                            "precio": float(nuevo_precio)
-                        }).eq(
-                            "nombre",
-                            insumo_editar,
-                        ).execute()
-
-                        st.session_state.INSUMOS[
-                            insumo_editar
-                        ] = float(nuevo_precio)
-
-                        st.success(
-                            "Costo actualizado."
-                        )
+                        if modo_invitado:
+                            st.session_state.INSUMOS[insumo_editar] = float(nuevo_precio)
+                            st.success(
+                                "Costo actualizado en modo demostración. "
+                                "No se modificó la base real."
+                            )
+                        else:
+                            supabase.table("insumos").update({
+                                "precio": float(nuevo_precio)
+                            }).eq(
+                                "nombre", insumo_editar,
+                            ).execute()
+                            st.session_state.INSUMOS[insumo_editar] = float(nuevo_precio)
+                            st.success("Costo actualizado.")
                         st.rerun()
 
                     except Exception as err:
@@ -2454,20 +2544,15 @@ elif opcion_menu == "🛒 Insumos y Costos":
                         )
                     else:
                         try:
-                            supabase.table(
-                                "insumos"
-                            ).delete().eq(
-                                "nombre",
-                                insumo_editar,
-                            ).execute()
-
-                            del st.session_state.INSUMOS[
-                                insumo_editar
-                            ]
-
-                            st.success(
-                                "Insumo eliminado."
-                            )
+                            if modo_invitado:
+                                del st.session_state.INSUMOS[insumo_editar]
+                                st.success("Insumo eliminado de la demostración.")
+                            else:
+                                supabase.table("insumos").delete().eq(
+                                    "nombre", insumo_editar,
+                                ).execute()
+                                del st.session_state.INSUMOS[insumo_editar]
+                                st.success("Insumo eliminado.")
                             st.rerun()
 
                         except Exception as err:
@@ -2531,16 +2616,19 @@ elif opcion_menu == "🛒 Insumos y Costos":
                 st.stop()
 
             try:
-                supabase.table("insumos").insert({
-                    "nombre": nombre,
-                    "precio": float(nuevo_precio),
-                }).execute()
-
-                st.session_state.INSUMOS[
-                    nombre
-                ] = float(nuevo_precio)
-
-                st.success("Insumo creado.")
+                if modo_invitado:
+                    st.session_state.INSUMOS[nombre] = float(nuevo_precio)
+                    st.success(
+                        "Insumo creado en modo demostración. "
+                        "No se modificó la base real."
+                    )
+                else:
+                    supabase.table("insumos").insert({
+                        "nombre": nombre,
+                        "precio": float(nuevo_precio),
+                    }).execute()
+                    st.session_state.INSUMOS[nombre] = float(nuevo_precio)
+                    st.success("Insumo creado.")
                 st.rerun()
 
             except Exception as err:

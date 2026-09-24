@@ -310,6 +310,57 @@ st.markdown("""
 # HELPERS GENERALES
 # ============================================================
 
+def familia_producto(nombre):
+    """Agrupa visualmente variantes sin cambiar el nombre real guardado."""
+    texto = limpiar_texto(nombre)
+    normal = clave_normalizada(texto)
+    if normal.startswith("budin ") or normal.startswith("budin de "):
+        return "Budín"
+    if normal.startswith("brownie ") or normal.startswith("brownie de "):
+        return "Brownie"
+    return texto
+
+
+def gusto_producto(nombre, familia=None):
+    texto = limpiar_texto(nombre)
+    familia = familia or familia_producto(texto)
+    if familia in {"Budín", "Brownie"}:
+        patrones = [r"^bud[ií]n\s+de\s+", r"^bud[ií]n\s+", r"^brownie\s+de\s+", r"^brownie\s+"]
+        for patron in patrones:
+            nuevo = re.sub(patron, "", texto, flags=re.IGNORECASE).strip()
+            if nuevo != texto:
+                return nuevo
+    return texto
+
+
+def productos_agrupados(recetas=None):
+    recetas = recetas if recetas is not None else st.session_state.RECETAS
+    grupos = {}
+    for nombre in recetas.keys():
+        grupos.setdefault(familia_producto(nombre), []).append(nombre)
+    return grupos
+
+
+def selector_producto_agrupado(label="Producto", key_prefix="producto"):
+    """Muestra familia y, cuando corresponde, gusto; devuelve la clave real de la receta."""
+    grupos = productos_agrupados()
+    familias = list(grupos.keys())
+    if not familias:
+        return None
+    familia_sel = st.selectbox(label, familias, key=f"{key_prefix}_familia")
+    variantes = grupos[familia_sel]
+    if len(variantes) == 1 and familia_sel == variantes[0]:
+        return variantes[0]
+    mapa_gustos = {}
+    for nombre in variantes:
+        etiqueta = gusto_producto(nombre, familia_sel) or nombre
+        if etiqueta in mapa_gustos:
+            etiqueta = f"{etiqueta} ({nombre})"
+        mapa_gustos[etiqueta] = nombre
+    gusto_sel = st.selectbox("Gusto / variedad", list(mapa_gustos.keys()), key=f"{key_prefix}_gusto")
+    return mapa_gustos[gusto_sel]
+
+
 def dinero(valor):
     try:
         return f"${float(valor):,.2f}"
@@ -1288,7 +1339,7 @@ if opcion_menu == "📊 Cargar Venta Diaria":
 
     with col1:
         fecha_venta = st.date_input("Fecha", value=hoy_argentina())
-        prod_sel = st.selectbox("Producto", productos)
+        prod_sel = selector_producto_agrupado("Producto", "venta_producto")
         datos_prod = st.session_state.RECETAS[prod_sel]
 
     with col2:
@@ -2200,10 +2251,9 @@ elif opcion_menu == "🏷️ Productos y Recetas":
             col1, col2 = st.columns([2, 1])
 
             with col1:
-                prod_mod = st.selectbox(
+                prod_mod = selector_producto_agrupado(
                     "Producto",
-                    productos,
-                    key="prod_mod_precio",
+                    "prod_mod_precio",
                 )
 
                 pres_dict = st.session_state.RECETAS[
@@ -3133,9 +3183,9 @@ elif opcion_menu == "⚙️ Calculadora de Costos":
         st.info("No hay productos.")
         st.stop()
 
-    receta_seleccionada = st.selectbox(
+    receta_seleccionada = selector_producto_agrupado(
         "Producto",
-        list(st.session_state.RECETAS.keys()),
+        "calc_producto",
     )
 
     receta = st.session_state.RECETAS[

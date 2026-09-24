@@ -318,6 +318,10 @@ def familia_producto(nombre):
         return "Budín"
     if normal.startswith("brownie ") or normal.startswith("brownie de "):
         return "Brownie"
+    if re.match(r"^cafe\s+(chico|grande)$", normal):
+        return "Café"
+    if re.match(r"^te\s+(chico|grande)$", normal):
+        return "Té"
     return texto
 
 
@@ -330,6 +334,12 @@ def gusto_producto(nombre, familia=None):
             nuevo = re.sub(patron, "", texto, flags=re.IGNORECASE).strip()
             if nuevo != texto:
                 return nuevo
+    if familia in {"Café", "Té"}:
+        normal = clave_normalizada(texto)
+        if normal.endswith(" chico"):
+            return "Chico"
+        if normal.endswith(" grande"):
+            return "Grande"
     return texto
 
 

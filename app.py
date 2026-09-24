@@ -20,6 +20,7 @@ DEMO_INSUMOS_DEFAULT = {
     "Manteca Demo (kg)": 5000.0,
     "Huevo Demo (unidad)": 250.0,
     "Chocolate Demo (kg)": 6000.0,
+    "Naranja Demo (unidad)": 300.0,
 }
 
 DEMO_RECETAS_DEFAULT = {
@@ -135,7 +136,7 @@ INSUMOS_DEFAULT = {
     "Dulce de Leche (kg)": 7000.0, "Huevo (unidad)": 150.0, "Aceite (litro)": 4000.0,
     "Leche (litro)": 2290.0, "Toddy cacao polvo (kg)": 12600.0, "Azucar impalpable (kg)": 4000.0,
     "Maicena (kg)": 4100.0, "Crema de Leche (litro)": 3800.0, "Caja (unidad)": 2000.0,
-    "Frutos rojos (kg)": 16000.0, "Bandeja torta (unidad)": 800.0, "Naranja (kg)": 2000.0,
+    "Frutos rojos (kg)": 16000.0, "Bandeja torta (unidad)": 800.0, "Naranja (kg)": 2000.0, "Naranja (unidad)": 300.0,
     "Limon (kg)": 1500.0, "Queso crema (kg)": 12000.0, "Esencia de vainilla (litro)": 22600.0,
     "Coco rallado (kg)": 43400.0, "Bolsa (unidad)": 32.0, "Bandeja (unidad)": 40.0, 
     "Vaso Chico (unidad)": 72.0, "Vaso Grande (unidad)": 100.0, "Cafe molido (kg)": 18550.0,
@@ -428,6 +429,127 @@ def obtener_recetas():
         return {}
 
 
+def guardar_receta_en_base(nombre_receta):
+    """Guarda los ingredientes actuales de una receta en Supabase."""
+    if modo_invitado:
+        return
+
+    supabase.table("productos").update({
+        "ingredientes": st.session_state.RECETAS[nombre_receta].get("ingredientes", {}),
+    }).eq("nombre", nombre_receta).execute()
+
+
+def guardar_insumo_en_base(nombre, precio):
+    """Guarda el precio de un insumo en Supabase. En demo solo modifica sesión."""
+    precio = float(precio)
+
+    if modo_invitado:
+        st.session_state.INSUMOS[nombre] = precio
+        return
+
+    supabase.table("insumos").update({
+        "precio": precio,
+    }).eq("nombre", nombre).execute()
+    st.session_state.INSUMOS[nombre] = precio
+
+
+def crear_insumo_en_base(nombre, precio):
+    """Crea un insumo nuevo en la base real o solamente en la demo."""
+    nombre = limpiar_texto(nombre)
+    precio = float(precio)
+
+    if modo_invitado:
+        st.session_state.INSUMOS[nombre] = precio
+        return
+
+    supabase.table("insumos").insert({
+        "nombre": nombre,
+        "precio": precio,
+    }).execute()
+    st.session_state.INSUMOS[nombre] = precio
+
+
+def normalizar_naranjas_por_unidad():
+    """Convierte Naranja (kg) a Naranja (unidad), usando 150 g por naranja."""
+    nombre_kg = buscar_insumo("Naranja (kg)")
+    nombre_unidad = buscar_insumo("Naranja (unidad)")
+
+    if nombre_kg is None:
+        return
+
+    precio_kg = numero(st.session_state.INSUMOS.get(nombre_kg), 0.0)
+    precio_unidad_calculado = precio_kg * 0.150
+
+    # Creamos el insumo por unidad si todavía no existe. Su precio siempre
+    # representa exactamente 150 g de naranja, por lo que se deriva del precio/kg.
+    if nombre_unidad is None:
+        nombre_unidad = "Naranja (unidad)"
+        if modo_invitado:
+            st.session_state.INSUMOS[nombre_unidad] = precio_unidad_calculado
+        else:
+            try:
+                supabase.table("insumos").insert({
+                    "nombre": nombre_unidad,
+                    "precio": precio_unidad_calculado,
+                }).execute()
+                st.session_state.INSUMOS[nombre_unidad] = precio_unidad_calculado
+            except Exception:
+                # Si otro proceso la creó al mismo tiempo, volvemos a leerla.
+                res = supabase.table("insumos").select("nombre, precio").eq("nombre", nombre_unidad).limit(1).execute()
+                if res.data:
+                    st.session_state.INSUMOS[nombre_unidad] = numero(res.data[0].get("precio"), precio_unidad_calculado)
+                else:
+                    return
+    else:
+        # Si cambió el precio por kg, actualizamos automáticamente el precio por unidad.
+        if abs(numero(st.session_state.INSUMOS.get(nombre_unidad), -1) - precio_unidad_calculado) > 0.001:
+            st.session_state.INSUMOS[nombre_unidad] = precio_unidad_calculado
+            if not modo_invitado:
+                try:
+                    supabase.table("insumos").update({
+                        "precio": precio_unidad_calculado,
+                    }).eq("nombre", nombre_unidad).execute()
+                except Exception:
+                    pass
+
+    # Las recetas que todavía usan kg pasan automáticamente a unidades.
+    recetas_modificadas = []
+    for nombre_receta, receta in st.session_state.RECETAS.items():
+        ingredientes = dict(receta.get("ingredientes") or {})
+        clave_kg = None
+        clave_unidad = None
+
+        for ing in ingredientes:
+            if clave_normalizada(ing) == clave_normalizada("Naranja (kg)"):
+                clave_kg = ing
+            if clave_normalizada(ing) == clave_normalizada("Naranja (unidad)"):
+                clave_unidad = ing
+
+        if clave_kg is None:
+            continue
+
+        cantidad_kg = numero(ingredientes.get(clave_kg), 0.0)
+        cantidad_unidades = cantidad_kg / 0.150
+
+        if clave_unidad is not None:
+            cantidad_unidades += numero(ingredientes.get(clave_unidad), 0.0)
+            del ingredientes[clave_unidad]
+
+        del ingredientes[clave_kg]
+        ingredientes[nombre_unidad] = round(cantidad_unidades, 4)
+        receta["ingredientes"] = ingredientes
+        recetas_modificadas.append(nombre_receta)
+
+    if not modo_invitado:
+        for nombre_receta in recetas_modificadas:
+            try:
+                guardar_receta_en_base(nombre_receta)
+            except Exception:
+                # La receta ya quedó normalizada en memoria; si la escritura falla,
+                # no detenemos toda la aplicación. Se mostrará el estado al recargar.
+                pass
+
+
 # ============================================================
 # CARGA DE DATOS SEGÚN EL MODO
 # ============================================================
@@ -447,6 +569,9 @@ else:
         st.session_state.INSUMOS = obtener_insumos()
     if "RECETAS" not in st.session_state:
         st.session_state.RECETAS = obtener_recetas()
+
+# Las naranjas se manejan siempre por unidad: 1 naranja = 150 g.
+normalizar_naranjas_por_unidad()
 
 # ============================================================
 # CÁLCULOS DE COSTOS
@@ -3139,13 +3264,20 @@ elif opcion_menu == "⚙️ Calculadora de Costos":
 
     st.markdown("---")
     st.subheader("🥣 Desglose de insumos")
+    st.caption(
+        "Podés corregir la cantidad de un ingrediente, cambiar su precio, "
+        "agregarlo o eliminarlo de esta receta. Los cambios se guardan en la receta real "
+        "cuando estás en modo privado."
+    )
 
+    ingredientes_actuales = receta.get("ingredientes", {}) or {}
+
+    # --------------------------------------------------------
+    # TABLA DE DESGLOSE
+    # --------------------------------------------------------
     desglose = []
 
-    for ing, cant in (
-        receta.get("ingredientes", {}).items()
-    ):
-
+    for ing, cant in ingredientes_actuales.items():
         nombre_real = buscar_insumo(ing)
         precio_ing = (
             st.session_state.INSUMOS.get(nombre_real)
@@ -3154,19 +3286,15 @@ elif opcion_menu == "⚙️ Calculadora de Costos":
         )
 
         if precio_ing is None:
-            costo_ing = 0
+            costo_ing = 0.0
             precio_mostrar = "FALTANTE"
         else:
             precio_ing = numero(precio_ing)
-            costo_ing = (
-                numero(cant) * precio_ing
-            )
-            precio_mostrar = dinero(
-                precio_ing
-            )
+            costo_ing = numero(cant) * precio_ing
+            precio_mostrar = dinero(precio_ing)
 
         if "(unidad)" in ing.lower():
-            cantidad_mostrar = f"{numero(cant):.0f}"
+            cantidad_mostrar = f"{numero(cant):.4f}"
         else:
             cantidad_mostrar = f"{numero(cant):.3f}"
 
@@ -3179,13 +3307,234 @@ elif opcion_menu == "⚙️ Calculadora de Costos":
 
     df_desglose = pd.DataFrame(desglose)
 
-    st.dataframe(
-        df_desglose.style.format({
-            "Costo en receta": "${:,.2f}",
-        }),
-        use_container_width=True,
-        hide_index=True,
-    )
+    if df_desglose.empty:
+        st.info("Esta receta todavía no tiene insumos.")
+    else:
+        st.dataframe(
+            df_desglose.style.format({
+                "Costo en receta": "${:,.2f}",
+            }),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    # --------------------------------------------------------
+    # EDITAR INSUMO EXISTENTE
+    # --------------------------------------------------------
+    with st.expander("✏️ Editar un insumo de esta receta", expanded=False):
+        if not ingredientes_actuales:
+            st.info("No hay ingredientes para editar.")
+        else:
+            ing_editar = st.selectbox(
+                "Insumo",
+                list(ingredientes_actuales.keys()),
+                key=f"calc_editar_ing_{receta_seleccionada}",
+            )
+
+            cantidad_actual = numero(ingredientes_actuales.get(ing_editar), 0.0)
+            precio_actual = numero(
+                st.session_state.INSUMOS.get(buscar_insumo(ing_editar), 0.0),
+                0.0,
+            )
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                if "(unidad)" in ing_editar.lower():
+                    nueva_cantidad = st.number_input(
+                        "Cantidad utilizada",
+                        min_value=0.0001,
+                        value=max(cantidad_actual, 0.0001),
+                        step=0.1,
+                        format="%.4f",
+                        key=f"calc_cantidad_{receta_seleccionada}_{ing_editar}",
+                    )
+                else:
+                    nueva_cantidad = st.number_input(
+                        "Cantidad utilizada",
+                        min_value=0.0001,
+                        value=max(cantidad_actual, 0.0001),
+                        step=0.010,
+                        format="%.4f",
+                        key=f"calc_cantidad_{receta_seleccionada}_{ing_editar}",
+                    )
+
+            with col2:
+                if clave_normalizada(ing_editar) == clave_normalizada("Naranja (unidad)"):
+                    nuevo_precio = precio_actual
+                    st.number_input(
+                        "Precio por naranja ($)",
+                        min_value=0.0,
+                        value=precio_actual,
+                        step=100.0,
+                        disabled=True,
+                        key=f"calc_precio_{receta_seleccionada}_{ing_editar}",
+                    )
+                    st.caption("Se calcula automáticamente: precio de Naranja (kg) × 0,150.")
+                else:
+                    nuevo_precio = st.number_input(
+                        "Precio actual del insumo ($)",
+                        min_value=0.0,
+                        value=precio_actual,
+                        step=100.0,
+                        key=f"calc_precio_{receta_seleccionada}_{ing_editar}",
+                    )
+
+            if clave_normalizada(ing_editar) != clave_normalizada("Naranja (unidad)"):
+                st.caption(
+                    "El precio del insumo es global: si lo cambiás acá, también cambia "
+                    "el costo de ese insumo en las demás recetas."
+                )
+
+            if st.button(
+                "💾 Guardar cambios",
+                type="primary",
+                use_container_width=True,
+                key=f"calc_guardar_ing_{receta_seleccionada}",
+            ):
+                try:
+                    nombre_real = buscar_insumo(ing_editar)
+                    ingredientes_nuevos = dict(ingredientes_actuales)
+                    ingredientes_nuevos[ing_editar] = float(nueva_cantidad)
+                    st.session_state.RECETAS[receta_seleccionada]["ingredientes"] = ingredientes_nuevos
+
+                    if nombre_real is not None:
+                        guardar_insumo_en_base(nombre_real, nuevo_precio)
+                    guardar_receta_en_base(receta_seleccionada)
+
+                    st.success("Ingrediente y precio actualizados.")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"No se pudieron guardar los cambios: {err}")
+
+    # --------------------------------------------------------
+    # AGREGAR INSUMO A LA RECETA
+    # --------------------------------------------------------
+    with st.expander("➕ Agregar insumo a esta receta", expanded=False):
+        disponibles = [
+            nombre for nombre in st.session_state.INSUMOS
+            if nombre not in ingredientes_actuales
+        ]
+
+        if disponibles:
+            nuevo_ing = st.selectbox(
+                "Elegí el insumo",
+                disponibles,
+                key=f"calc_nuevo_ing_{receta_seleccionada}",
+            )
+
+            if "(unidad)" in nuevo_ing.lower():
+                cantidad_nuevo = st.number_input(
+                    "Cantidad utilizada",
+                    min_value=0.0001,
+                    value=1.0,
+                    step=0.1,
+                    format="%.4f",
+                    key=f"calc_nueva_cantidad_{receta_seleccionada}",
+                )
+            else:
+                cantidad_nuevo = st.number_input(
+                    "Cantidad utilizada",
+                    min_value=0.0001,
+                    value=0.100,
+                    step=0.010,
+                    format="%.4f",
+                    key=f"calc_nueva_cantidad_{receta_seleccionada}",
+                )
+
+            if st.button(
+                "➕ Agregar a la receta",
+                type="primary",
+                use_container_width=True,
+                key=f"calc_agregar_ing_{receta_seleccionada}",
+            ):
+                try:
+                    ingredientes_nuevos = dict(ingredientes_actuales)
+                    ingredientes_nuevos[nuevo_ing] = float(cantidad_nuevo)
+                    st.session_state.RECETAS[receta_seleccionada]["ingredientes"] = ingredientes_nuevos
+                    guardar_receta_en_base(receta_seleccionada)
+                    st.success(f"{nuevo_ing} agregado a la receta.")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"No se pudo agregar el insumo: {err}")
+        else:
+            st.info("Todos los insumos disponibles ya están incluidos en esta receta.")
+
+        st.markdown("#### 🆕 Crear un insumo nuevo")
+        col1, col2 = st.columns(2)
+        with col1:
+            nombre_insumo_nuevo = st.text_input(
+                "Nombre del nuevo insumo",
+                placeholder="Ej: Nueces (kg)",
+                key=f"calc_nombre_insumo_nuevo_{receta_seleccionada}",
+            )
+        with col2:
+            precio_insumo_nuevo = st.number_input(
+                "Precio del insumo ($)",
+                min_value=0.0,
+                value=0.0,
+                step=100.0,
+                key=f"calc_precio_insumo_nuevo_{receta_seleccionada}",
+            )
+
+        if st.button(
+            "🆕 Crear insumo y agregarlo",
+            use_container_width=True,
+            key=f"calc_crear_ing_{receta_seleccionada}",
+        ):
+            nombre_nuevo = limpiar_texto(nombre_insumo_nuevo)
+
+            if not nombre_nuevo:
+                st.warning("Escribí un nombre para el insumo.")
+                st.stop()
+
+            if buscar_insumo(nombre_nuevo) is not None:
+                st.warning("Ya existe un insumo con ese nombre. Usá 'Agregar insumo a esta receta'.")
+                st.stop()
+
+            try:
+                crear_insumo_en_base(nombre_nuevo, precio_insumo_nuevo)
+                ingredientes_nuevos = dict(ingredientes_actuales)
+                ingredientes_nuevos[nombre_nuevo] = 1.0
+                st.session_state.RECETAS[receta_seleccionada]["ingredientes"] = ingredientes_nuevos
+                guardar_receta_en_base(receta_seleccionada)
+                st.success(f"{nombre_nuevo} fue creado y agregado a la receta.")
+                st.rerun()
+            except Exception as err:
+                st.error(f"No se pudo crear el insumo: {err}")
+
+    # --------------------------------------------------------
+    # ELIMINAR INSUMO DE LA RECETA
+    # --------------------------------------------------------
+    with st.expander("🗑️ Eliminar un insumo de esta receta", expanded=False):
+        if not ingredientes_actuales:
+            st.info("No hay ingredientes para eliminar.")
+        else:
+            ing_eliminar = st.selectbox(
+                "Insumo a quitar",
+                list(ingredientes_actuales.keys()),
+                key=f"calc_eliminar_ing_{receta_seleccionada}",
+            )
+
+            st.warning(
+                "Esto lo elimina solamente de esta receta. El insumo seguirá existiendo "
+                "en 'Insumos y Costos' y podrá usarse en otros productos."
+            )
+
+            if st.button(
+                "🗑️ Eliminar de esta receta",
+                use_container_width=True,
+                key=f"calc_eliminar_btn_{receta_seleccionada}",
+            ):
+                try:
+                    ingredientes_nuevos = dict(ingredientes_actuales)
+                    del ingredientes_nuevos[ing_eliminar]
+                    st.session_state.RECETAS[receta_seleccionada]["ingredientes"] = ingredientes_nuevos
+                    guardar_receta_en_base(receta_seleccionada)
+                    st.success(f"{ing_eliminar} fue eliminado de la receta.")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"No se pudo eliminar el insumo: {err}")
 
 # ============================================================
 # FIN

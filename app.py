@@ -145,7 +145,7 @@ INSUMOS_DEFAULT = {
 
 RECETAS_DEFAULT = {
     "Alfajores de maicena": {
-        "rinde": 30, "tipo": "unidades",
+        "rinde": 20, "tipo": "unidades",
         "precios": {"1 Unidad": 1250.0, "Media Docena (6u)": 7500.0, "Docena (12u)": 15000.0},
         "ingredientes": {"Harina Leudante (kg)": 0.200, "Manteca (kg)": 0.100, "Azúcar impalpable (kg)": 0.100, "Maicena (kg)": 0.300, "Dulce de Leche (kg)": 0.250, "Huevo (unidad)": 2, "Esencia de vainilla (litro)": 0.005, "Coco rallado (kg)": 0.010, "Bolsa (unidad)": 30}
     },

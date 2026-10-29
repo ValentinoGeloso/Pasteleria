@@ -8,6 +8,12 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from supabase import create_client
+from data_access import fetch_all_rows
+from datetime import date as calendar_date
+from decimal import Decimal
+from financial_overview import reporting_sales, cash_overview, money_value
+from html import escape
+from dulce_mar_ui import apply_design, render_brand, render_page_header, render_login_intro, style_chart
 
 
 # ============================================================
@@ -48,6 +54,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+
+apply_design()
 
 # ============================================================
 # ACCESO: MODO PRIVADO / MODO INVITADO
@@ -93,20 +101,20 @@ def salir_modo_invitado():
 # El modo invitado tiene prioridad: no requiere autenticación.
 if not st.session_state.modo_invitado:
     if not st.user.is_logged_in:
-        st.title("🧁 Dulce Mar")
-        st.subheader("Sistema de gestión")
-        st.write(
-            "Iniciá sesión con una cuenta autorizada para acceder "
-            "al sistema privado, o probá la demostración."
-        )
-
-        col_login, col_demo = st.columns(2)
-        with col_login:
-            if st.button("🔐 Iniciar sesión con Google", use_container_width=True):
-                st.login()
-        with col_demo:
-            if st.button("👀 Ver demostración", use_container_width=True):
-                entrar_modo_invitado()
+        story, access = st.columns([1.3, 1], gap="large", vertical_alignment="center")
+        with story:
+            render_login_intro()
+        with access:
+            with st.container(border=True, key="login_access"):
+                st.markdown('<h2 class="dm-access-title">Tu espacio de trabajo</h2>', unsafe_allow_html=True)
+                st.write("Ingresá con una cuenta autorizada para administrar Dulce Mar.")
+                if st.button("Iniciar sesión con Google", type="primary", width="stretch"):
+                    st.login()
+                st.divider()
+                st.caption("Conocé las herramientas con datos ficticios.")
+                if st.button("Explorar demostración", width="stretch"):
+                    entrar_modo_invitado()
+                st.caption("La demostración se guarda solo durante la sesión.")
         st.stop()
 
     email_usuario = (getattr(st.user, "email", "") or "").lower().strip()
@@ -117,10 +125,10 @@ if not st.session_state.modo_invitado:
 
         col_demo, col_logout = st.columns(2)
         with col_demo:
-            if st.button("👀 Continuar como invitado", use_container_width=True):
+            if st.button('Continuar como invitado', width="stretch"):
                 entrar_modo_invitado()
         with col_logout:
-            if st.button("🚪 Cerrar sesión", use_container_width=True):
+            if st.button('Cerrar sesión', width="stretch"):
                 st.logout()
         st.stop()
 
@@ -246,66 +254,6 @@ if not modo_invitado:
 # ESTILO
 # ============================================================
 
-st.markdown("""
-<style>
-    h1, h2, h3 {
-        color: #72b3c2 !important;
-        font-family: 'Segoe UI', 'Helvetica Neue', sans-serif;
-        font-weight: 700;
-    }
-
-    .stButton > button {
-        border-radius: 8px;
-        font-weight: 600;
-        min-height: 42px;
-    }
-
-    .card-resumen {
-        background: linear-gradient(135deg, #1e2d38, #18242d);
-        border-radius: 14px;
-        padding: 18px;
-        border: 1px solid #3a5366;
-        margin: 5px 0 15px 0;
-    }
-
-    .card-title {
-        font-size: 13px;
-        color: #93c5fd;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: .4px;
-        margin-bottom: 5px;
-    }
-
-    .card-value {
-        font-size: 25px;
-        font-weight: 750;
-    }
-
-    .venta-item {
-        background-color: #1a232a;
-        padding: 13px 16px;
-        border-radius: 9px;
-        border-left: 4px solid #72b3c2;
-        margin-bottom: 9px;
-        color: #e0f2fe;
-    }
-
-    .small-muted {
-        color: #94a3b8;
-        font-size: 13px;
-    }
-
-    .positive {
-        color: #4ade80;
-    }
-
-    .negative {
-        color: #f87171;
-    }
-</style>
-""", unsafe_allow_html=True)
-
 # ============================================================
 # HELPERS GENERALES
 # ============================================================
@@ -373,9 +321,9 @@ def selector_producto_agrupado(label="Producto", key_prefix="producto"):
 
 def dinero(valor):
     try:
-        return f"${float(valor):,.2f}"
+        return f"$ {float(valor):,.2f}".replace(",", "·").replace(".", ",").replace("·", ".")
     except Exception:
-        return "$0.00"
+        return "$ 0,00"
 
 def numero(valor, default=0.0):
     try:
@@ -428,47 +376,34 @@ def safe_float_series(df, columna):
 
 def obtener_insumos():
     try:
-        res = supabase.table("insumos").select("*").execute()
+        datos = fetch_all_rows(supabase, "insumos")
 
-        if not res.data:
-            datos = [
-                {"nombre": nombre, "precio": float(precio)}
-                for nombre, precio in INSUMOS_DEFAULT.items()
-            ]
-            supabase.table("insumos").insert(datos).execute()
-            return dict(INSUMOS_DEFAULT)
+        if not datos:
+            st.error("No hay insumos visibles. Revisá la conexión y los permisos antes de continuar.")
+            st.stop()
 
         resultado = {}
-        for item in res.data:
+        for item in datos:
             nombre = item.get("nombre")
             if nombre:
                 resultado[nombre] = numero(item.get("precio"), 0.0)
         return resultado
 
-    except Exception as e:
-        st.error(f"Error al cargar insumos: {e}")
-        return {}
+    except Exception:
+        st.error("No se pudieron cargar los insumos. Recargá los datos antes de continuar.")
+        st.stop()
 
 
 def obtener_recetas():
     try:
-        res = supabase.table("productos").select("*").execute()
+        datos = fetch_all_rows(supabase, "productos")
 
-        if not res.data:
-            datos = []
-            for nombre, receta in RECETAS_DEFAULT.items():
-                datos.append({
-                    "nombre": nombre,
-                    "rinde": int(receta["rinde"]),
-                    "tipo": receta["tipo"],
-                    "precios": receta["precios"],
-                    "ingredientes": receta["ingredientes"],
-                })
-            supabase.table("productos").insert(datos).execute()
-            return dict(RECETAS_DEFAULT)
+        if not datos:
+            st.error("No hay productos visibles. Revisá la conexión y los permisos antes de continuar.")
+            st.stop()
 
         resultado = {}
-        for item in res.data:
+        for item in datos:
             nombre = item.get("nombre")
             if not nombre:
                 continue
@@ -485,9 +420,9 @@ def obtener_recetas():
 
         return resultado
 
-    except Exception as e:
-        st.error(f"Error al cargar productos: {e}")
-        return {}
+    except Exception:
+        st.error("No se pudieron cargar los productos. Recargá los datos antes de continuar.")
+        st.stop()
 
 
 def guardar_receta_en_base(nombre_receta):
@@ -532,6 +467,11 @@ def crear_insumo_en_base(nombre, precio):
 
 def normalizar_naranjas_por_unidad():
     """Convierte Naranja (kg) a Naranja (unidad), usando 150 g por naranja."""
+    # Los datos reales requieren una migración explícita con respaldo y revisión.
+    # Abrir o recargar la app nunca debe reescribir precios ni recetas reales.
+    if not modo_invitado:
+        return
+
     nombre_kg = buscar_insumo("Naranja (kg)")
     nombre_unidad = buscar_insumo("Naranja (unidad)")
 
@@ -1270,14 +1210,15 @@ def modal_producto_guardado(nombre):
         )
     else:
         st.write("Ya está disponible para ventas y cálculos.")
-    if st.button("Entendido", use_container_width=True):
+    if st.button("Entendido", width="stretch"):
         st.rerun()
 
 # ============================================================
 # SIDEBAR
 # ============================================================
 
-st.sidebar.title("🧁 Dulce Mar")
+with st.sidebar:
+    render_brand(sidebar=True)
 
 if modo_invitado:
     st.sidebar.caption("👀 Modo demostración")
@@ -1286,30 +1227,17 @@ if modo_invitado:
         "y no modifican la base real."
     )
 
-    if st.sidebar.button("↩️ Restablecer demostración", use_container_width=True):
-        limpiar_datos_sesion_app()
-        st.session_state.modo_invitado = True
-        st.rerun()
-
-    if st.sidebar.button("🔐 Volver al modo privado", use_container_width=True):
-        salir_modo_invitado()
-
     opciones_menu = [
         "🏷️ Productos y Recetas",
         "🛒 Insumos y Costos",
         "⚙️ Calculadora de Costos",
     ]
 else:
-    st.sidebar.caption("🔒 Sistema privado")
-
-    if st.sidebar.button("🔄 Recargar datos", use_container_width=True):
-        refrescar_datos()
-
-    if st.sidebar.button("👀 Ver demostración", use_container_width=True):
-        entrar_modo_invitado()
+    st.sidebar.caption("Espacio privado")
 
     opciones_menu = [
         "📊 Cargar Venta Diaria",
+        "💳 Cuentas por cobrar",
         "📥 Importar Ventas Históricas",
         "📈 Dashboard",
         "🏷️ Productos y Recetas",
@@ -1319,7 +1247,39 @@ else:
         "⚙️ Calculadora de Costos",
     ]
 
-opcion_menu = st.sidebar.radio("Navegación:", opciones_menu)
+MENU_LABELS = {
+    "💳 Cuentas por cobrar": "Cuentas por cobrar",
+    "📊 Cargar Venta Diaria": "Ventas cobradas",
+    "📥 Importar Ventas Históricas": "Importar ventas",
+    "📈 Dashboard": "Resumen del negocio",
+    "🏷️ Productos y Recetas": "Productos y recetas",
+    "🛒 Insumos y Costos": "Insumos",
+    "🧾 Gastos Operativos": "Gastos",
+    "🗑️ Mermas": "Mermas",
+    "⚙️ Calculadora de Costos": "Calculadora",
+}
+opcion_menu = st.sidebar.radio(
+    "Tu negocio", opciones_menu, format_func=lambda value: MENU_LABELS.get(value, value)
+)
+st.sidebar.divider()
+if modo_invitado:
+    if st.sidebar.button('Restablecer demostración', width="stretch"):
+        limpiar_datos_sesion_app()
+        st.session_state.modo_invitado = True
+        st.rerun()
+
+    if st.sidebar.button('Volver al modo privado', width="stretch"):
+        salir_modo_invitado()
+
+else:
+    if st.sidebar.button('Recargar datos', width="stretch"):
+        refrescar_datos()
+
+    if st.sidebar.button('Ver demostración', width="stretch"):
+        entrar_modo_invitado()
+
+st.sidebar.caption("Dulce Mar · Gestión de pastelería")
+
 
 if modo_invitado:
     st.info(
@@ -1333,7 +1293,7 @@ if modo_invitado:
 
 if opcion_menu == "📊 Cargar Venta Diaria":
 
-    st.header("🛒 Registrar nueva venta")
+    render_page_header("Registrar una venta", "Para ventas ya cobradas. Si quedó pendiente de pago, usá Cuentas por cobrar.")
     st.caption(
         "El costo se guarda en el momento de la venta. "
         "Si mañana cambia el precio de un insumo, las ventas anteriores no cambian."
@@ -1345,345 +1305,367 @@ if opcion_menu == "📊 Cargar Venta Diaria":
 
     productos = list(st.session_state.RECETAS.keys())
 
-    col1, col2 = st.columns(2)
+    venta_form, venta_resumen = st.columns([1.55, 1], gap="large")
+    with venta_form:
+        with st.container(border=True):
+            st.subheader("Detalle de la venta")
+            col1, col2 = st.columns(2)
 
-    with col1:
-        fecha_venta = st.date_input("Fecha", value=hoy_argentina())
-        prod_sel = selector_producto_agrupado("Producto", "venta_producto")
-        datos_prod = st.session_state.RECETAS[prod_sel]
+            with col1:
+                fecha_venta = st.date_input("Fecha", value=hoy_argentina(), format="DD/MM/YYYY")
+                prod_sel = selector_producto_agrupado("Producto", "venta_producto")
+                datos_prod = st.session_state.RECETAS[prod_sel]
 
-    with col2:
-        presentaciones = list((datos_prod.get("precios") or {}).keys())
+            with col2:
+                presentaciones = list((datos_prod.get("precios") or {}).keys())
 
-        if not presentaciones:
-            st.error("Este producto no tiene presentaciones/precios.")
-            st.stop()
+                if not presentaciones:
+                    st.error("Este producto no tiene presentaciones/precios.")
+                    st.stop()
 
-        tipo_presentacion = st.selectbox("Presentación", presentaciones)
-        cantidad = st.number_input(
-            "Cantidad vendida",
-            min_value=1,
-            value=1,
-            step=1,
-        )
-
-    # ---------------- PROMO CAFÉ + BUDÍN ----------------
-    cant_budin_promo = 0
-    budin_sel_promo = None
-    precio_extra_budin = 0.0
-
-    if "Cafe" in prod_sel:
-        st.markdown("---")
-        agregar_promo = st.checkbox(
-            "☕ Agregar porción de Budín promocional a $750"
-        )
-
-        if agregar_promo:
-            budines_disponibles = [
-                p for p in productos
-                if "Budin" in p or "Budín" in p
-            ]
-
-            if budines_disponibles:
-                colb1, colb2 = st.columns(2)
-
-                with colb1:
-                    budin_sel_promo = st.selectbox(
-                        "Gusto del budín",
-                        budines_disponibles,
-                    )
-
-                with colb2:
-                    cant_budin_promo = st.number_input(
-                        "Porciones de budín",
-                        min_value=1,
-                        value=1,
-                        step=1,
-                    )
-
-                precio_extra_budin = cant_budin_promo * 750.0
-
-    precio_base = numero(
-        datos_prod["precios"].get(tipo_presentacion), 0.0
-    ) * cantidad
-
-    precio_total_sugerido = precio_base + precio_extra_budin
-
-    precio_cobrado = st.number_input(
-        "Precio total cobrado ($)",
-        min_value=0.0,
-        value=float(precio_total_sugerido),
-        step=100.0,
-    )
-
-    # ---------------- COSTO ----------------
-    costo_total_venta, faltantes = calcular_costo_presentacion(
-        prod_sel,
-        tipo_presentacion,
-        cantidad,
-    )
-
-    if faltantes:
-        st.error(
-            "No se puede calcular el costo correctamente porque faltan "
-            f"estos insumos: {', '.join(faltantes)}"
-        )
-        costo_total_venta = 0.0
-
-    faltantes_venta = list(faltantes)
-    faltantes_budin = []
-
-    if cant_budin_promo > 0 and budin_sel_promo:
-        _, costo_u_budin, faltantes_budin = calcular_costo_receta(
-            budin_sel_promo
-        )
-
-        if faltantes_budin:
-            faltantes_venta.extend(
-                [f"{budin_sel_promo}: {x}" for x in faltantes_budin]
-            )
-            st.error(
-                "La promo tiene insumos faltantes: "
-                + ", ".join(faltantes_budin)
-            )
-        else:
-            costo_total_venta += costo_u_budin * cant_budin_promo
-
-    margen_bruto = precio_cobrado - costo_total_venta
-    margen_pct = (
-        margen_bruto / precio_cobrado * 100
-        if precio_cobrado > 0
-        else 0
-    )
-
-    m1, m2, m3 = st.columns(3)
-    m1.metric("💵 Venta", dinero(precio_cobrado))
-    m2.metric("📦 Costo directo", dinero(costo_total_venta))
-    m3.metric("📈 Margen bruto", dinero(margen_bruto))
-
-    st.caption(
-        f"Margen sobre venta: **{margen_pct:.1f}%**. "
-        "Esto todavía no descuenta gas, electricidad u otros gastos generales."
-    )
-
-    if st.button(
-        "💾 Guardar venta en la nube",
-        type="primary",
-        use_container_width=True,
-    ):
-        try:
-            if faltantes_venta:
-                st.error(
-                    "Corregí los insumos faltantes antes de guardar: "
-                    + ", ".join(faltantes_venta)
+                tipo_presentacion = st.selectbox("Presentación", presentaciones)
+                cantidad = st.number_input(
+                    "Cantidad vendida",
+                    min_value=1,
+                    value=1,
+                    step=1,
                 )
-                st.stop()
 
-            presentacion_final = tipo_presentacion
+            # ---------------- PROMO CAFÉ + BUDÍN ----------------
+            cant_budin_promo = 0
+            budin_sel_promo = None
+            precio_extra_budin = 0.0
+
+            if "Cafe" in prod_sel:
+                st.markdown("---")
+                agregar_promo = st.checkbox(
+                    'Agregar porción de Budín promocional a $750'
+                )
+
+                if agregar_promo:
+                    budines_disponibles = [
+                        p for p in productos
+                        if "Budin" in p or "Budín" in p
+                    ]
+
+                    if budines_disponibles:
+                        colb1, colb2 = st.columns(2)
+
+                        with colb1:
+                            budin_sel_promo = st.selectbox(
+                                "Gusto del budín",
+                                budines_disponibles,
+                            )
+
+                        with colb2:
+                            cant_budin_promo = st.number_input(
+                                "Porciones de budín",
+                                min_value=1,
+                                value=1,
+                                step=1,
+                            )
+
+                        precio_extra_budin = cant_budin_promo * 750.0
+
+            precio_base = numero(
+                datos_prod["precios"].get(tipo_presentacion), 0.0
+            ) * cantidad
+
+            precio_total_sugerido = precio_base + precio_extra_budin
+
+            precio_cobrado = st.number_input(
+                "Precio total cobrado ($)",
+                min_value=0.0,
+                value=float(precio_total_sugerido),
+                step=100.0,
+            )
+
+    with venta_resumen:
+        with st.container(border=True, key="venta_resumen"):
+            st.subheader("Resumen de la venta")
+            # ---------------- COSTO ----------------
+            costo_total_venta, faltantes = calcular_costo_presentacion(
+                prod_sel,
+                tipo_presentacion,
+                cantidad,
+            )
+
+            if faltantes:
+                st.error(
+                    "No se puede calcular el costo correctamente porque faltan "
+                    f"estos insumos: {', '.join(faltantes)}"
+                )
+                costo_total_venta = 0.0
+
+            faltantes_venta = list(faltantes)
+            faltantes_budin = []
 
             if cant_budin_promo > 0 and budin_sel_promo:
-                gusto_corto = (
+                _, costo_u_budin, faltantes_budin = calcular_costo_receta(
                     budin_sel_promo
-                    .replace("Budin de ", "")
-                    .replace("Budín de ", "")
-                    .replace("Budin ", "")
-                    .replace("Budín ", "")
-                )
-                presentacion_final += (
-                    f" + {cant_budin_promo}x Budín "
-                    f"{gusto_corto} (Promo $750)"
                 )
 
-            # Se mantiene "ganancia_limpia" por compatibilidad con la
-            # tabla existente. Desde esta versión representa margen bruto.
-            registro = {
-                "fecha": str(fecha_venta),
-                "producto": prod_sel,
-                "cantidad": int(cantidad),
-                "tipo_venta": presentacion_final,
-                "monto_total": float(precio_cobrado),
-                "costo_total": float(costo_total_venta),
-                "ganancia_limpia": float(margen_bruto),
-            }
+                if faltantes_budin:
+                    faltantes_venta.extend(
+                        [f"{budin_sel_promo}: {x}" for x in faltantes_budin]
+                    )
+                    st.error(
+                        "La promo tiene insumos faltantes: "
+                        + ", ".join(faltantes_budin)
+                    )
+                else:
+                    costo_total_venta += costo_u_budin * cant_budin_promo
 
-            supabase.table("ventas").insert(registro).execute()
-
-            st.success(
-                f"Venta guardada. Margen bruto: {dinero(margen_bruto)}"
+            margen_bruto = precio_cobrado - costo_total_venta
+            margen_pct = (
+                margen_bruto / precio_cobrado * 100
+                if precio_cobrado > 0
+                else 0
             )
-            st.rerun()
 
-        except Exception as err:
-            st.error(f"No se pudo guardar la venta: {err}")
-
-    # ---------------- HISTORIAL ----------------
-    st.markdown("---")
-    st.subheader("📋 Historial de ventas")
-    st.caption("Se muestran 50 ventas por página. El resto permanece guardado en Supabase.")
-
-    # ---------------- PAGINACIÓN ----------------
-    VENTAS_POR_PAGINA = 50
-
-    try:
-        total_respuesta = (
-            supabase.table("ventas")
-            .select("id", count="exact", head=True)
-            .execute()
-        )
-        total_ventas = int(total_respuesta.count or 0)
-    except Exception as err:
-        st.error(f"No se pudo contar el historial: {err}")
-        total_ventas = 0
-
-    if total_ventas == 0:
-        st.info("Todavía no hay ventas registradas.")
-    else:
-        total_paginas = (total_ventas + VENTAS_POR_PAGINA - 1) // VENTAS_POR_PAGINA
-
-        if "pagina_historial_ventas" not in st.session_state:
-            st.session_state.pagina_historial_ventas = 1
-
-        pagina_actual = min(
-            max(int(st.session_state.pagina_historial_ventas), 1),
-            total_paginas,
-        )
-
-        offset = (pagina_actual - 1) * VENTAS_POR_PAGINA
-
-        try:
-            respuesta = (
-                supabase.table("ventas")
-                .select("*")
-                .order("fecha", desc=True)
-                .order("id", desc=True)
-                .range(offset, offset + VENTAS_POR_PAGINA - 1)
-                .execute()
+            st.caption(f"{cantidad} × {tipo_presentacion}")
+            st.metric("Total cobrado", dinero(precio_cobrado))
+            st.divider()
+            st.markdown(
+                '<div class="dm-receipt-row"><span>Costo directo</span>'
+                f'<strong>{escape(dinero(costo_total_venta))}</strong></div>'
+                '<div class="dm-receipt-row dm-receipt-margin"><span>Margen bruto</span>'
+                f'<strong>{escape(dinero(margen_bruto))}</strong></div>',
+                unsafe_allow_html=True,
             )
-            datos_ventas = respuesta.data or []
-        except Exception as err:
-            st.error(f"No se pudo cargar el historial: {err}")
-            datos_ventas = []
-
-        # Controles de navegación: anterior, números de página y siguiente.
-        if total_paginas > 1:
-            # Mostramos anterior + hasta 5 números + siguiente.
-            inicio_pag = max(1, pagina_actual - 2)
-            fin_pag = min(total_paginas, inicio_pag + 4)
-            inicio_pag = max(1, fin_pag - 4)
-            paginas_mostrar = list(range(inicio_pag, fin_pag + 1))
-            nav_cols = st.columns(len(paginas_mostrar) + 2)
-
-            with nav_cols[0]:
-                if st.button(
-                    "⬅️",
-                    disabled=pagina_actual <= 1,
-                    use_container_width=True,
-                    key="hist_prev",
-                    help="Página anterior",
-                ):
-                    st.session_state.pagina_historial_ventas = pagina_actual - 1
-                    st.rerun()
-
-            for i, numero_pag in enumerate(paginas_mostrar, start=1):
-                with nav_cols[i]:
-                    if st.button(
-                        f"{'🔵 ' if numero_pag == pagina_actual else ''}{numero_pag}",
-                        disabled=numero_pag == pagina_actual,
-                        use_container_width=True,
-                        key=f"hist_page_{numero_pag}",
-                    ):
-                        st.session_state.pagina_historial_ventas = numero_pag
-                        st.rerun()
-
-            with nav_cols[-1]:
-                if st.button(
-                    "➡️",
-                    disabled=pagina_actual >= total_paginas,
-                    use_container_width=True,
-                    key="hist_next",
-                    help="Página siguiente",
-                ):
-                    st.session_state.pagina_historial_ventas = pagina_actual + 1
-                    st.rerun()
 
             st.caption(
-                f"Página {pagina_actual} de {total_paginas} · "
-                f"{total_ventas} ventas registradas · "
-                f"Mostrando {offset + 1}-{min(offset + VENTAS_POR_PAGINA, total_ventas)}"
+                f"Margen sobre venta: **{margen_pct:.1f}%**. "
+                "Esto todavía no descuenta gas, electricidad u otros gastos generales."
             )
 
-        if not datos_ventas:
-            st.info("No hay ventas para esta página.")
-        else:
-            df_ventas = pd.DataFrame(datos_ventas)
-            df_ventas["fecha"] = pd.to_datetime(
-                df_ventas["fecha"], errors="coerce"
-            )
+            if st.button(
+                "Guardar venta",
+                type="primary",
+                width="stretch",
+            ):
+                try:
+                    if faltantes_venta:
+                        st.error(
+                            "Corregí los insumos faltantes antes de guardar: "
+                            + ", ".join(faltantes_venta)
+                        )
+                        st.stop()
 
-            for _, row in df_ventas.iterrows():
-                fecha_txt = (
-                    row["fecha"].strftime("%d/%m/%Y")
-                    if pd.notna(row["fecha"])
-                    else "-"
-                )
+                    presentacion_final = tipo_presentacion
 
-                with st.container():
-                    col_info, col_btn = st.columns([5, 1])
-
-                    with col_info:
-                        st.markdown(
-                            f"""
-                            <div class="venta-item">
-                                📅 <b>{fecha_txt}</b> |
-                                <b>{row.get('producto', '-')}</b>
-                                ({row.get('tipo_venta', '-')}) x
-                                {row.get('cantidad', 0)}
-                                <br>
-                                💵 Venta:
-                                <b>{dinero(row.get('monto_total', 0))}</b>
-                                &nbsp;|&nbsp;
-                                📦 Costo:
-                                <b>{dinero(row.get('costo_total', 0))}</b>
-                                &nbsp;|&nbsp;
-                                📈 Margen:
-                                <b>{dinero(row.get('ganancia_limpia', 0))}</b>
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
+                    if cant_budin_promo > 0 and budin_sel_promo:
+                        gusto_corto = (
+                            budin_sel_promo
+                            .replace("Budin de ", "")
+                            .replace("Budín de ", "")
+                            .replace("Budin ", "")
+                            .replace("Budín ", "")
+                        )
+                        presentacion_final += (
+                            f" + {cant_budin_promo}x Budín "
+                            f"{gusto_corto} (Promo $750)"
                         )
 
-                    with col_btn:
+                    # Se mantiene "ganancia_limpia" por compatibilidad con la
+                    # tabla existente. Desde esta versión representa margen bruto.
+                    registro = {
+                        "fecha": str(fecha_venta),
+                        "producto": prod_sel,
+                        "cantidad": int(cantidad),
+                        "tipo_venta": presentacion_final,
+                        "monto_total": float(precio_cobrado),
+                        "costo_total": float(costo_total_venta),
+                        "ganancia_limpia": float(margen_bruto),
+                    }
+
+                    supabase.table("ventas").insert(registro).execute()
+
+                    st.success(
+                        f"Venta guardada. Margen bruto: {dinero(margen_bruto)}"
+                    )
+                    st.rerun()
+
+                except Exception as err:
+                    st.error(f"No se pudo guardar la venta: {err}")
+
+
+    with st.expander("Historial de ventas", expanded=False):
+        # ---------------- HISTORIAL ----------------
+        st.caption("Se muestran 50 ventas por página. El resto permanece guardado en Supabase.")
+
+        # ---------------- PAGINACIÓN ----------------
+        VENTAS_POR_PAGINA = 50
+
+        try:
+            total_respuesta = (
+                supabase.table("ventas")
+                .select("id", count="exact", head=True)
+                .execute()
+            )
+            total_ventas = int(total_respuesta.count or 0)
+        except Exception as err:
+            st.error(f"No se pudo contar el historial: {err}")
+            total_ventas = 0
+
+        if total_ventas == 0:
+            st.info("Todavía no hay ventas registradas.")
+        else:
+            total_paginas = (total_ventas + VENTAS_POR_PAGINA - 1) // VENTAS_POR_PAGINA
+
+            if "pagina_historial_ventas" not in st.session_state:
+                st.session_state.pagina_historial_ventas = 1
+
+            pagina_actual = min(
+                max(int(st.session_state.pagina_historial_ventas), 1),
+                total_paginas,
+            )
+
+            offset = (pagina_actual - 1) * VENTAS_POR_PAGINA
+
+            try:
+                respuesta = (
+                    supabase.table("ventas")
+                    .select("*")
+                    .order("fecha", desc=True)
+                    .order("id", desc=True)
+                    .range(offset, offset + VENTAS_POR_PAGINA - 1)
+                    .execute()
+                )
+                datos_ventas = respuesta.data or []
+            except Exception as err:
+                st.error(f"No se pudo cargar el historial: {err}")
+                datos_ventas = []
+
+            # Controles de navegación: anterior, números de página y siguiente.
+            if total_paginas > 1:
+                # Mostramos anterior + hasta 5 números + siguiente.
+                inicio_pag = max(1, pagina_actual - 2)
+                fin_pag = min(total_paginas, inicio_pag + 4)
+                inicio_pag = max(1, fin_pag - 4)
+                paginas_mostrar = list(range(inicio_pag, fin_pag + 1))
+                nav_cols = st.columns(len(paginas_mostrar) + 2)
+
+                with nav_cols[0]:
+                    if st.button(
+                        "⬅️",
+                        disabled=pagina_actual <= 1,
+                        width="stretch",
+                        key="hist_prev",
+                        help="Página anterior",
+                    ):
+                        st.session_state.pagina_historial_ventas = pagina_actual - 1
+                        st.rerun()
+
+                for i, numero_pag in enumerate(paginas_mostrar, start=1):
+                    with nav_cols[i]:
                         if st.button(
-                            "🗑️ Borrar",
-                            key=f"del_venta_{row.get('id')}",
+                            f"{'🔵 ' if numero_pag == pagina_actual else ''}{numero_pag}",
+                            disabled=numero_pag == pagina_actual,
+                            width="stretch",
+                            key=f"hist_page_{numero_pag}",
                         ):
-                            try:
-                                supabase.table("ventas").delete().eq(
-                                    "id", row.get("id")
-                                ).execute()
-                                st.success("Venta eliminada.")
-                                st.rerun()
-                            except Exception as err:
-                                st.error(f"No se pudo eliminar: {err}")
+                            st.session_state.pagina_historial_ventas = numero_pag
+                            st.rerun()
+
+                with nav_cols[-1]:
+                    if st.button(
+                        "➡️",
+                        disabled=pagina_actual >= total_paginas,
+                        width="stretch",
+                        key="hist_next",
+                        help="Página siguiente",
+                    ):
+                        st.session_state.pagina_historial_ventas = pagina_actual + 1
+                        st.rerun()
+
+                st.caption(
+                    f"Página {pagina_actual} de {total_paginas} · "
+                    f"{total_ventas} ventas registradas · "
+                    f"Mostrando {offset + 1}-{min(offset + VENTAS_POR_PAGINA, total_ventas)}"
+                )
+
+            if not datos_ventas:
+                st.info("No hay ventas para esta página.")
+            else:
+                df_ventas = pd.DataFrame(datos_ventas)
+                df_ventas["fecha"] = pd.to_datetime(
+                    df_ventas["fecha"], errors="coerce"
+                )
+
+                for _, row in df_ventas.iterrows():
+                    fecha_txt = (
+                        row["fecha"].strftime("%d/%m/%Y")
+                        if pd.notna(row["fecha"])
+                        else "-"
+                    )
+
+                    with st.container():
+                        col_info, col_btn = st.columns([5, 1])
+
+                        with col_info:
+                            st.markdown(
+                                f"""
+                                <div class="venta-item">
+                                    <b>{fecha_txt}</b> |
+                                    <b>{escape(str(row.get('producto', '-')))}</b>
+                                    ({escape(str(row.get('tipo_venta', '-')))}) x
+                                    {row.get('cantidad', 0)}
+                                    <br>
+                                    Venta:
+                                    <b>{dinero(row.get('monto_total', 0))}</b>
+                                    &nbsp;|&nbsp;
+                                    Costo:
+                                    <b>{dinero(row.get('costo_total', 0))}</b>
+                                    &nbsp;|&nbsp;
+                                    Margen:
+                                    <b>{dinero(row.get('ganancia_limpia', 0))}</b>
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+
+                        with col_btn:
+                            if st.button(
+                                'Borrar',
+                                key=f"del_venta_{row.get('id')}",
+                            ):
+                                try:
+                                    supabase.table("ventas").delete().eq(
+                                        "id", row.get("id")
+                                    ).execute()
+                                    st.success("Venta eliminada.")
+                                    st.rerun()
+                                except Exception as err:
+                                    st.error(f"No se pudo eliminar: {err}")
+
 
 # ============================================================
 # 2. IMPORTAR VENTAS HISTÓRICAS
 # ============================================================
 
+elif opcion_menu == "💳 Cuentas por cobrar":
+    from customer_accounts import render_accounts_page
+    render_accounts_page(
+        supabase, st.session_state.RECETAS, calcular_costo_presentacion,
+        hoy_argentina(), dinero,
+    )
+
 elif opcion_menu == "📥 Importar Ventas Históricas":
 
-    st.header("📥 Importar ventas históricas")
+    render_page_header("Importar ventas", "Traé tu historial en Excel o CSV y revisalo antes de guardarlo.")
     st.caption(
         "Subí uno o varios Excel/CSV y el sistema intentará detectar automáticamente "
         "fecha, producto, cantidad y precio. No modifica insumos, recetas ni ventas existentes."
     )
 
-    st.info(
-        "💡 Reglas históricas: **2 porc**, **2 porciones** o **por. budín** se interpreta como porciones de budín. "
-        "Si el budín no tiene gusto indicado, se guarda como **Budines (gusto no registrado)**. "
-        "En el caso de **chipa**, si no se aclara presentación, se interpreta como **1 bolsa de media docena (6u)**; "
-        "por ejemplo, **2 chipa = 2 bolsas de 6**. Así mantenemos la ganancia histórica completa sin inventar gustos."
-    )
+    with st.expander("Criterios de importación", expanded=False):
+        st.caption(
+            "💡 Reglas históricas: **2 porc**, **2 porciones** o **por. budín** se interpreta como porciones de budín. "
+            "Si el budín no tiene gusto indicado, se guarda como **Budines (gusto no registrado)**. "
+            "En el caso de **chipa**, si no se aclara presentación, se interpreta como **1 bolsa de media docena (6u)**; "
+            "por ejemplo, **2 chipa = 2 bolsas de 6**. Así mantenemos la ganancia histórica completa sin inventar gustos."
+        )
 
     archivos = st.file_uploader(
         "Seleccioná los archivos históricos",
@@ -1788,20 +1770,16 @@ elif opcion_menu == "📥 Importar Ventas Históricas":
             df_importacion["_firma"] = df_importacion.apply(firma_venta_historica, axis=1)
 
             try:
-                existentes = (
-                    supabase.table("ventas")
-                    .select("fecha, producto, cantidad, tipo_venta, monto_total")
-                    .execute()
-                    .data
-                    or []
+                existentes = fetch_all_rows(
+                    supabase, "ventas", "fecha, producto, cantidad, tipo_venta, monto_total"
                 )
                 conteo_existentes = Counter(firma_venta_historica(x) for x in existentes)
-            except Exception as err:
-                conteo_existentes = Counter()
-                st.warning(
-                    "No se pudo verificar coincidencias contra Supabase. "
-                    f"Revisá antes de confirmar. Detalle: {err}"
+            except Exception:
+                st.error(
+                    "No se pudieron verificar las ventas existentes. "
+                    "La importación está detenida para evitar duplicados. Volvé a intentar."
                 )
+                st.stop()
 
             # Marca solamente tantas ocurrencias como ya existan en Supabase.
             # Ejemplo: si el Excel trae 2 ventas idénticas y Supabase tiene 1,
@@ -1818,7 +1796,7 @@ elif opcion_menu == "📥 Importar Ventas Históricas":
             repetidas = int(df_importacion["_existente"].sum())
 
             st.markdown("---")
-            st.subheader("🔎 Vista previa")
+            st.subheader('Vista previa')
 
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Filas detectadas", len(df_importacion))
@@ -1840,7 +1818,7 @@ elif opcion_menu == "📥 Importar Ventas Históricas":
 
             st.dataframe(
                 resumen_productos.style.format({"Ventas": "${:,.2f}"}),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -1861,7 +1839,7 @@ elif opcion_menu == "📥 Importar Ventas Históricas":
                         "costo_total": "${:,.2f}",
                         "ganancia_limpia": "${:,.2f}",
                     }),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
 
@@ -1878,7 +1856,7 @@ elif opcion_menu == "📥 Importar Ventas Históricas":
                 if st.button(
                     f"💾 Importar {len(nuevas)} ventas nuevas",
                     type="primary",
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     registros = nuevas[[
                         "fecha", "producto", "cantidad", "tipo_venta",
@@ -1935,27 +1913,28 @@ elif opcion_menu == "📥 Importar Ventas Históricas":
 
 elif opcion_menu == "📈 Dashboard":
 
-    st.header("📈 Dashboard del negocio")
+    render_page_header("Resumen del negocio", "Una mirada a tus ventas, costos y resultados.")
     st.caption(
         "El resultado operativo usa solamente los gastos y mermas "
         "que hayan sido registrados en el sistema."
     )
 
     try:
-        ventas_data = (
-            supabase.table("ventas")
-            .select("*")
-            .order("fecha")
-            .execute()
-            .data
-            or []
-        )
-    except Exception as err:
-        st.error(f"No se pudieron cargar las ventas: {err}")
-        ventas_data = []
+        ventas_data = fetch_all_rows(supabase, "ventas")
+    except Exception:
+        st.error("No se pudieron cargar las ventas. El reporte está detenido para evitar resultados incompletos.")
+        st.stop()
 
-    if ventas_data:
-        df = pd.DataFrame(ventas_data)
+    from customer_accounts import load_accounts, summarize_accounts, AccountsUnavailableError
+    try:
+        cuentas_data = load_accounts(supabase)
+    except AccountsUnavailableError:
+        st.error("No se pudieron cargar las cuentas por cobrar. El resumen está detenido para no mostrar un saldo incompleto.")
+        st.stop()
+    ventas_informe = reporting_sales(ventas_data, cuentas_data)
+
+    if ventas_informe:
+        df = pd.DataFrame(ventas_informe)
 
         df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
         df = df.dropna(subset=["fecha"])
@@ -1977,8 +1956,11 @@ elif opcion_menu == "📈 Dashboard":
             unidades_equivalentes, axis=1
         )
 
-        min_fecha = df["fecha"].min().date()
-        max_fecha = df["fecha"].max().date()
+        fechas_informe = list(df["fecha"].dt.date) + [
+            calendar_date.fromisoformat(str(pago["fecha"])[:10]) for pago in cuentas_data["pagos"]
+        ]
+        min_fecha = min(fechas_informe)
+        max_fecha = max(fechas_informe)
 
         colf1, colf2 = st.columns(2)
         with colf1:
@@ -1987,6 +1969,7 @@ elif opcion_menu == "📈 Dashboard":
                 value=min_fecha,
                 min_value=min_fecha,
                 max_value=max_fecha,
+                    format="DD/MM/YYYY",
             )
         with colf2:
             hasta = st.date_input(
@@ -1994,6 +1977,7 @@ elif opcion_menu == "📈 Dashboard":
                 value=max_fecha,
                 min_value=min_fecha,
                 max_value=max_fecha,
+                    format="DD/MM/YYYY",
             )
 
         if desde > hasta:
@@ -2007,15 +1991,10 @@ elif opcion_menu == "📈 Dashboard":
 
         # Gastos operativos
         try:
-            gastos_data = (
-                supabase.table("gastos_operativos")
-                .select("*")
-                .execute()
-                .data
-                or []
-            )
+            gastos_data = fetch_all_rows(supabase, "gastos_operativos")
         except Exception:
-            gastos_data = []
+            st.error("No se pudieron cargar los gastos. El reporte está detenido para evitar resultados incompletos.")
+            st.stop()
 
         if gastos_data:
             dg = pd.DataFrame(gastos_data)
@@ -2028,22 +2007,17 @@ elif opcion_menu == "📈 Dashboard":
                 & (dg["fecha"].dt.date <= hasta)
             ].copy()
 
-            gastos_periodo = dg_periodo["monto"].sum()
+            gastos_periodo = sum((money_value(v) for v in dg_periodo["monto"]), Decimal("0.00"))
         else:
             dg_periodo = pd.DataFrame()
-            gastos_periodo = 0.0
+            gastos_periodo = Decimal("0.00")
 
         # Mermas
         try:
-            mermas_data = (
-                supabase.table("mermas")
-                .select("*")
-                .execute()
-                .data
-                or []
-            )
+            mermas_data = fetch_all_rows(supabase, "mermas")
         except Exception:
-            mermas_data = []
+            st.error("No se pudieron cargar las mermas. El reporte está detenido para evitar resultados incompletos.")
+            st.stop()
 
         if mermas_data:
             dm = pd.DataFrame(mermas_data)
@@ -2056,14 +2030,20 @@ elif opcion_menu == "📈 Dashboard":
                 & (dm["fecha"].dt.date <= hasta)
             ].copy()
 
-            mermas_periodo = dm_periodo["costo_total"].sum()
+            mermas_periodo = sum((money_value(v) for v in dm_periodo["costo_total"]), Decimal("0.00"))
         else:
             dm_periodo = pd.DataFrame()
-            mermas_periodo = 0.0
+            mermas_periodo = Decimal("0.00")
 
-        facturacion = df_periodo["monto_total"].sum()
-        costo_directo = df_periodo["costo_total"].sum()
-        margen_bruto_total = df_periodo["ganancia_limpia"].sum()
+        resumen_cuentas = summarize_accounts(cuentas_data, desde, hasta)
+        caja = cash_overview(ventas_data, resumen_cuentas, desde, hasta)
+        ventas_cobradas_periodo = [
+            row for row in ventas_data
+            if desde <= calendar_date.fromisoformat(str(row["fecha"])[:10]) <= hasta
+        ]
+        facturacion = caja["total_sales"]
+        costo_directo = sum((money_value(row["costo_total"]) for row in ventas_cobradas_periodo), Decimal("0.00")) + resumen_cuentas["period_credit_cost"]
+        margen_bruto_total = sum((money_value(row["ganancia_limpia"]) for row in ventas_cobradas_periodo), Decimal("0.00")) + resumen_cuentas["period_credit_sales"] - resumen_cuentas["period_credit_cost"]
 
         resultado_operativo = (
             margen_bruto_total
@@ -2089,148 +2069,147 @@ elif opcion_menu == "📈 Dashboard":
             else 0
         )
 
-        # ---------------- KPIs ----------------
-        k1, k2, k3 = st.columns(3)
-        k1.metric("💵 Facturación", dinero(facturacion))
-        k2.metric("📦 Costo directo", dinero(costo_directo))
-        k3.metric("📈 Margen bruto", dinero(margen_bruto_total))
-
-        k4, k5, k6 = st.columns(3)
-        k4.metric("🧾 Gastos operativos", dinero(gastos_periodo))
-        k5.metric("🗑️ Mermas", dinero(mermas_periodo))
-        k6.metric("🏦 Resultado operativo", dinero(resultado_operativo))
-
-        st.info(
-            f"Margen bruto: **{margen_bruto_pct:.1f}%** | "
-            f"Resultado operativo sobre ventas: **{resultado_pct:.1f}%** | "
-            f"Promedio por venta: **{dinero(promedio_ticket)}** | "
-            f"Ventas: **{len(df_periodo)}** | "
-            f"Unidades equivalentes: **{df_periodo['unidades_equivalentes'].sum():.0f}**"
+        with st.container(border=True, key="resumen_principal"):
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Cobrado", dinero(caja["collected"]), help="Ventas cobradas al momento más pagos de cuentas recibidos en el período seleccionado.")
+            k2.metric("Saldo por cobrar", dinero(caja["outstanding"]), help="Todas las deudas todavía pendientes a la fecha Hasta, incluso si se originaron antes del período.")
+            k3.metric("Cobrado + pendiente", dinero(caja["collected_plus_outstanding"]), help="Proyección: lo cobrado en el período más las deudas pendientes. No es dinero disponible ni ganancia.")
+        st.caption(f"Cobros del período y saldo pendiente al {hasta:%d/%m/%Y}. El total proyectado supone cobrar todas esas deudas.")
+        with st.container(key="resumen_secundario"):
+            k4, k5, k6, k7 = st.columns(4)
+            k4.metric("Ventas del período", dinero(facturacion), help="Ventas cobradas y productos vendidos a cuenta. Los pagos de cuentas no vuelven a sumarse como ventas.")
+            k5.metric("Costo directo", dinero(costo_directo))
+            k6.metric("Margen bruto", dinero(margen_bruto_total))
+            k7.metric("Resultado operativo", dinero(resultado_operativo), help="Margen de las ventas del período, incluidas las ventas a cuenta, menos gastos y mermas registrados. No equivale al efectivo disponible.")
+        st.caption(
+            f"Gastos: {dinero(gastos_periodo)} · Mermas: {dinero(mermas_periodo)} · "
+            f"Promedio por venta: {dinero(promedio_ticket)} · "
+            f"{len(df_periodo)} registros de venta · "
+            f"Margen bruto {margen_bruto_pct:.1f}% · Resultado sobre ventas {resultado_pct:.1f}%"
+            .replace("$", r"\$")
         )
+        tab_evolucion, tab_productos, tab_detalle = st.tabs(["Evolución", "Por producto", "Detalle y exportación"])
 
-        # ---------------- TENDENCIA DIARIA ----------------
-        st.markdown("---")
-        st.subheader("📅 Evolución diaria")
+        with tab_evolucion:
+            from dashboard_charts import aggregate_evolution
 
-        diario = (
-            df_periodo.assign(Día=df_periodo["fecha"].dt.date)
-            .groupby("Día")
-            .agg(
-                Facturación=("monto_total", "sum"),
-                Costo=("costo_total", "sum"),
-                Margen=("ganancia_limpia", "sum"),
+            cadencia = st.radio(
+                "Ver evolución", ["Diaria", "Semanal", "Mensual"],
+                index=1, horizontal=True, key="evolucion_cadencia",
             )
-            .reset_index()
-        )
+            evolucion = aggregate_evolution(df_periodo, cadencia)
+            st.subheader(f"Evolución {cadencia.lower()}")
+            if cadencia == "Semanal":
+                st.caption("Semanas de lunes a domingo. Los extremos incluyen solo los días del período seleccionado.")
+            if not evolucion.empty:
+                chart = px.bar if cadencia == "Mensual" else px.area
+                fig_evolucion = chart(
+                    evolucion, x="Periodo", y="Margen",
+                    custom_data=["Etiqueta"],
+                    title=f"Margen bruto por {'día' if cadencia == 'Diaria' else 'semana' if cadencia == 'Semanal' else 'mes'}",
+                    color_discrete_sequence=["#176B65"],
+                )
+                if cadencia != "Mensual":
+                    fig_evolucion.update_traces(mode="lines+markers")
+                fig_evolucion.update_traces(hovertemplate="%{customdata[0]}<br>Margen bruto: $ %{y:,.2f}<extra></extra>")
+                fig_evolucion.update_xaxes(title=None, tickformat="%m/%Y" if cadencia == "Mensual" else "%d/%m")
+                st.plotly_chart(style_chart(fig_evolucion), width="stretch", config={"displayModeBar": False})
+            else:
+                st.info("No hay ventas dentro del período seleccionado.")
 
-        if not diario.empty:
-            fig = px.bar(
-                diario,
-                x="Día",
-                y="Margen",
-                title="Margen bruto por día",
+        with tab_productos:
+            # ---------------- PRODUCTOS ----------------
+            st.subheader('Análisis por producto')
+
+            por_producto = (
+                df_periodo.groupby("producto")
+                .agg(
+                    Ventas=("monto_total", "sum"),
+                    Costo=("costo_total", "sum"),
+                    Margen=("ganancia_limpia", "sum"),
+                    Operaciones=("producto", "count"),
+                    Unidades=("unidades_equivalentes", "sum"),
+                )
+                .reset_index()
             )
-            st.plotly_chart(fig, use_container_width=True)
 
-        # ---------------- MENSUAL ----------------
-        st.subheader("🗓️ Evolución mensual")
+            por_producto["Margen %"] = (
+                por_producto["Margen"]
+                / por_producto["Ventas"]
+                .replace(0, pd.NA)
+                * 100
+            ).fillna(0)
 
-        mensual = (
-            df_periodo.assign(
-                Mes=df_periodo["fecha"].dt.to_period("M").astype(str)
+            por_producto = por_producto.sort_values(
+                "Margen",
+                ascending=False,
             )
-            .groupby("Mes")
-            .agg(
-                Facturación=("monto_total", "sum"),
-                Costo=("costo_total", "sum"),
-                Margen=("ganancia_limpia", "sum"),
+
+            colp1, colp2 = st.columns(2)
+
+            with colp1:
+                figp = px.bar(
+                    por_producto.sort_values("Margen", ascending=True),
+                    x="Margen",
+                    y="producto",
+                    orientation="h",
+                    title="Margen bruto por producto",
+                    color_discrete_sequence=["#176B65"],
+                )
+                st.plotly_chart(style_chart(figp, money_axis="x"), width="stretch", config={"displayModeBar": False})
+
+            with colp2:
+                figm = px.bar(
+                    por_producto.sort_values("Unidades", ascending=True),
+                    x="Unidades",
+                    y="producto",
+                    orientation="h",
+                    title="Cantidad de productos vendidos",
+                    color_discrete_sequence=["#7BAA9C"],
+                )
+                figm.update_xaxes(tickformat=",.0f", title="Unidades o porciones")
+                figm.update_traces(hovertemplate="%{y}<br>Cantidad: %{x:,.0f}<extra></extra>")
+                st.plotly_chart(style_chart(figm, money_axis=None), width="stretch", config={"displayModeBar": False})
+                st.caption("Unidades o porciones equivalentes según cada presentación.")
+
+            st.dataframe(
+                por_producto.style.format({
+                    "Ventas": "${:,.2f}",
+                    "Costo": "${:,.2f}",
+                    "Margen": "${:,.2f}",
+                    "Margen %": "{:.1f}%",
+                }),
+                width="stretch",
+                hide_index=True,
             )
-            .reset_index()
-        )
 
-        if not mensual.empty:
-            fig_m = px.bar(
-                mensual,
-                x="Mes",
-                y="Margen",
-                title="Margen bruto por mes",
+        with tab_detalle:
+            st.subheader("Ventas del período")
+            st.caption("Incluye ventas cobradas y a cuenta. Los pagos de cuentas son cobros, no ventas nuevas.")
+            st.dataframe(
+                df_periodo[["fecha", "tipo_registro", "referencia", "producto", "tipo_venta", "cantidad", "monto_total", "costo_total", "ganancia_limpia"]],
+                hide_index=True, width="stretch",
+                column_config={
+                    "fecha": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
+                    "tipo_registro": "Tipo", "referencia": "Referencia",
+                    "producto": "Producto", "tipo_venta": "Presentación", "cantidad": "Cantidad",
+                    "monto_total": st.column_config.NumberColumn("Venta", format="$ %.2f"),
+                    "costo_total": st.column_config.NumberColumn("Costo directo", format="$ %.2f"),
+                    "ganancia_limpia": st.column_config.NumberColumn("Margen bruto", format="$ %.2f"),
+                },
             )
-            st.plotly_chart(fig_m, use_container_width=True)
+            # ---------------- EXPORTAR ----------------
+            st.subheader('Exportar datos del período')
 
-        # ---------------- PRODUCTOS ----------------
-        st.markdown("---")
-        st.subheader("🏆 Análisis por producto")
+            csv = df_periodo.to_csv(index=False).encode("utf-8-sig")
 
-        por_producto = (
-            df_periodo.groupby("producto")
-            .agg(
-                Ventas=("monto_total", "sum"),
-                Costo=("costo_total", "sum"),
-                Margen=("ganancia_limpia", "sum"),
-                Operaciones=("producto", "count"),
-                Unidades=("unidades_equivalentes", "sum"),
+            st.download_button(
+                'Descargar ventas en CSV',
+                data=csv,
+                file_name=f"dulce_mar_ventas_{desde}_{hasta}.csv",
+                mime="text/csv",
+                width="stretch",
             )
-            .reset_index()
-        )
-
-        por_producto["Margen %"] = (
-            por_producto["Margen"]
-            / por_producto["Ventas"]
-            .replace(0, pd.NA)
-            * 100
-        ).fillna(0)
-
-        por_producto = por_producto.sort_values(
-            "Margen",
-            ascending=False,
-        )
-
-        colp1, colp2 = st.columns(2)
-
-        with colp1:
-            figp = px.bar(
-                por_producto.sort_values("Margen", ascending=True),
-                x="Margen",
-                y="producto",
-                orientation="h",
-                title="Margen bruto total por producto",
-            )
-            st.plotly_chart(figp, use_container_width=True)
-
-        with colp2:
-            figm = px.bar(
-                por_producto.sort_values("Margen %", ascending=True),
-                x="Margen %",
-                y="producto",
-                orientation="h",
-                title="Margen porcentual por producto",
-            )
-            st.plotly_chart(figm, use_container_width=True)
-
-        st.dataframe(
-            por_producto.style.format({
-                "Ventas": "${:,.2f}",
-                "Costo": "${:,.2f}",
-                "Margen": "${:,.2f}",
-                "Margen %": "{:.1f}%",
-            }),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        # ---------------- EXPORTAR ----------------
-        st.markdown("---")
-        st.subheader("📥 Exportar datos del período")
-
-        csv = df_periodo.to_csv(index=False).encode("utf-8-sig")
-
-        st.download_button(
-            "⬇️ Descargar ventas en CSV",
-            data=csv,
-            file_name=f"dulce_mar_ventas_{desde}_{hasta}.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
 
     else:
         st.info("Todavía no hay ventas registradas.")
@@ -2241,13 +2220,13 @@ elif opcion_menu == "📈 Dashboard":
 
 elif opcion_menu == "🏷️ Productos y Recetas":
 
-    st.header("🏷️ Productos y recetas")
+    render_page_header("Productos y recetas", "Precios claros y recetas siempre a mano.")
 
     tab1, tab2, tab3, tab4 = st.tabs([
-        "✏️ Precios",
-        "➕ Crear producto",
-        "🗑️ Eliminar producto",
-        "📊 Rentabilidad",
+        "Precios",
+        "Crear producto",
+        "Eliminar producto",
+        "Rentabilidad",
     ])
 
     # ---------------- PRECIOS ----------------
@@ -2258,7 +2237,7 @@ elif opcion_menu == "🏷️ Productos y Recetas":
         else:
             productos = list(st.session_state.RECETAS.keys())
 
-            col1, col2 = st.columns([2, 1])
+            col1, col2 = st.columns([1, 1.65], gap="large")
 
             with col1:
                 prod_mod = selector_producto_agrupado(
@@ -2291,7 +2270,7 @@ elif opcion_menu == "🏷️ Productos y Recetas":
                     )
 
                     if st.button(
-                        "💾 Guardar nuevo precio",
+                        'Guardar nuevo precio',
                         type="primary",
                     ):
                         try:
@@ -2321,7 +2300,7 @@ elif opcion_menu == "🏷️ Productos y Recetas":
                             )
 
             with col2:
-                st.subheader("📋 Precios actuales")
+                st.subheader('Precios actuales')
 
                 filas = []
 
@@ -2340,23 +2319,29 @@ elif opcion_menu == "🏷️ Productos y Recetas":
                         filas.append({
                             "Producto": nombre,
                             "Presentación": pres,
-                            "Precio": dinero(precio),
-                            "Costo directo": dinero(costo),
-                            "Margen": dinero(margen),
-                            "Margen %": f"{margen_pct:.1f}%",
+                            "Precio": numero(precio),
+                            "Costo directo": float(costo),
+                            "Margen": float(margen),
+                            "Margen %": float(margen_pct),
                         })
 
                 st.dataframe(
                     pd.DataFrame(filas),
-                    use_container_width=True,
-                    height=500,
+                    width="stretch",
+                    height=min(500, 36 * (len(filas) + 1) + 3),
                     hide_index=True,
+                    column_config={
+                        "Precio": st.column_config.NumberColumn(format="$ %.2f"),
+                        "Costo directo": st.column_config.NumberColumn(format="$ %.2f"),
+                        "Margen": st.column_config.NumberColumn(format="$ %.2f"),
+                        "Margen %": st.column_config.NumberColumn(format="%.1f%%"),
+                    },
                 )
 
     # ---------------- CREAR ----------------
     with tab2:
 
-        st.subheader("➕ Agregar producto nuevo")
+        st.subheader('Agregar producto nuevo')
 
         col1, col2 = st.columns(2)
 
@@ -2410,7 +2395,7 @@ elif opcion_menu == "🏷️ Productos y Recetas":
             )
 
         st.markdown("---")
-        st.subheader("🥣 Ingredientes")
+        st.subheader('Ingredientes')
 
         insumos_disponibles = list(
             st.session_state.INSUMOS.keys()
@@ -2452,9 +2437,9 @@ elif opcion_menu == "🏷️ Productos y Recetas":
                 dict_ingredientes_nuevo[ing] = float(cant)
 
         if st.button(
-            "✨ Guardar producto completo",
+            'Guardar producto completo',
             type="primary",
-            use_container_width=True,
+            width="stretch",
         ):
             nombre_limpio = limpiar_texto(nuevo_nombre_prod)
 
@@ -2548,7 +2533,7 @@ elif opcion_menu == "🏷️ Productos y Recetas":
             )
 
             if st.button(
-                "🗑️ Eliminar producto",
+                "Eliminar producto",
                 disabled=not confirmar,
             ):
                 try:
@@ -2612,7 +2597,7 @@ elif opcion_menu == "🏷️ Productos y Recetas":
                     "Margen bruto": "${:,.2f}",
                     "Margen %": "{:.1f}%",
                 }),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -2627,15 +2612,15 @@ elif opcion_menu == "🏷️ Productos y Recetas":
 
 elif opcion_menu == "🛒 Insumos y Costos":
 
-    st.header("🛒 Insumos y materias primas")
+    render_page_header("Insumos", "Actualizá tus materias primas y conocé su impacto en cada receta.")
     st.caption(
         "Packaging como bolsas, cajas, vasos y bandejas puede "
         "seguir dentro de esta tabla y dentro del costo directo."
     )
 
     tab1, tab2 = st.tabs([
-        "✏️ Editar",
-        "➕ Agregar",
+        "Editar",
+        "Agregar",
     ])
 
     with tab1:
@@ -2671,7 +2656,7 @@ elif opcion_menu == "🛒 Insumos y Costos":
 
             with col1:
                 if st.button(
-                    "🔄 Actualizar costo",
+                    'Actualizar costo',
                     type="primary",
                 ):
                     try:
@@ -2702,7 +2687,7 @@ elif opcion_menu == "🛒 Insumos y Costos":
                 )
 
                 if st.button(
-                    "🗑️ Eliminar insumo",
+                    'Eliminar insumo',
                     disabled=not confirmar_eliminar,
                 ):
                     # Evitamos borrar accidentalmente un insumo que
@@ -2746,7 +2731,7 @@ elif opcion_menu == "🛒 Insumos y Costos":
                             )
 
         st.markdown("---")
-        st.subheader("📋 Lista actual")
+        st.subheader('Lista actual')
 
         filas = [
             {
@@ -2766,8 +2751,8 @@ elif opcion_menu == "🛒 Insumos y Costos":
             df_ins.style.format({
                 "Costo": "${:,.2f}",
             }),
-            use_container_width=True,
-            height=500,
+            width="stretch",
+            height=min(500, 36 * (len(df_ins) + 1) + 3),
             hide_index=True,
         )
 
@@ -2785,7 +2770,7 @@ elif opcion_menu == "🛒 Insumos y Costos":
         )
 
         if st.button(
-            "➕ Crear insumo",
+            'Crear insumo',
             type="primary",
         ):
             nombre = limpiar_texto(nuevo_nombre)
@@ -2827,7 +2812,7 @@ elif opcion_menu == "🛒 Insumos y Costos":
 
 elif opcion_menu == "🧾 Gastos Operativos":
 
-    st.header("🧾 Gastos operativos")
+    render_page_header("Gastos del negocio", "Registrá lo que necesitás para mantener tu pastelería en marcha.")
     st.caption(
         "Acá van costos generales como gas, electricidad, internet, "
         "alquiler, impuestos u otros. No se meten dentro de la receta "
@@ -2835,8 +2820,8 @@ elif opcion_menu == "🧾 Gastos Operativos":
     )
 
     tab1, tab2 = st.tabs([
-        "➕ Registrar gasto",
-        "📋 Historial",
+        "Registrar gasto",
+        "Historial",
     ])
 
     with tab1:
@@ -2844,6 +2829,7 @@ elif opcion_menu == "🧾 Gastos Operativos":
         fecha_gasto = st.date_input(
             "Fecha del gasto",
             value=hoy_argentina(),
+            format="DD/MM/YYYY",
         )
 
         categoria = st.selectbox(
@@ -2875,9 +2861,9 @@ elif opcion_menu == "🧾 Gastos Operativos":
         )
 
         if st.button(
-            "💾 Registrar gasto",
+            'Registrar gasto',
             type="primary",
-            use_container_width=True,
+            width="stretch",
         ):
 
             if monto <= 0:
@@ -2948,7 +2934,7 @@ elif opcion_menu == "🧾 Gastos Operativos":
                 ]].style.format({
                     "monto": "${:,.2f}",
                 }),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -2970,7 +2956,7 @@ elif opcion_menu == "🧾 Gastos Operativos":
                 )
 
                 if st.button(
-                    "🗑️ Eliminar gasto seleccionado"
+                    'Eliminar gasto seleccionado'
                 ):
                     try:
                         supabase.table(
@@ -2996,15 +2982,15 @@ elif opcion_menu == "🧾 Gastos Operativos":
 
 elif opcion_menu == "🗑️ Mermas":
 
-    st.header("🗑️ Registro de mermas")
+    render_page_header("Mermas", "Registrá las pérdidas de insumos y su costo.")
     st.caption(
         "No inventamos una merma porcentual si normalmente es $0. "
         "Se registra únicamente lo que realmente se perdió/desperdició."
     )
 
     tab1, tab2 = st.tabs([
-        "➕ Registrar merma",
-        "📋 Historial",
+        "Registrar merma",
+        "Historial",
     ])
 
     with tab1:
@@ -3018,6 +3004,7 @@ elif opcion_menu == "🗑️ Mermas":
             fecha_merma = st.date_input(
                 "Fecha",
                 value=hoy_argentina(),
+                format="DD/MM/YYYY",
             )
 
             insumo_merma = st.selectbox(
@@ -3054,9 +3041,9 @@ elif opcion_menu == "🗑️ Mermas":
             )
 
             if st.button(
-                "💾 Registrar merma",
+                'Registrar merma',
                 type="primary",
-                use_container_width=True,
+                width="stretch",
             ):
 
                 if cantidad_merma <= 0:
@@ -3140,7 +3127,7 @@ elif opcion_menu == "🗑️ Mermas":
                     "costo_unitario": "${:,.2f}",
                     "costo_total": "${:,.2f}",
                 }),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -3158,7 +3145,7 @@ elif opcion_menu == "🗑️ Mermas":
             )
 
             if st.button(
-                "🗑️ Eliminar merma seleccionada"
+                'Eliminar merma seleccionada'
             ):
                 try:
                     supabase.table(
@@ -3184,7 +3171,7 @@ elif opcion_menu == "🗑️ Mermas":
 
 elif opcion_menu == "⚙️ Calculadora de Costos":
 
-    st.header("⚙️ Calculadora de costos y márgenes")
+    render_page_header("Calculadora de costos", "Explorá presentaciones, precios y márgenes antes de decidir.")
     st.caption(
         "Packaging incluido como costo directo cuando forma parte de la receta."
     )
@@ -3232,7 +3219,7 @@ elif opcion_menu == "⚙️ Calculadora de Costos":
     )
 
     st.markdown("---")
-    st.subheader("💵 Rentabilidad por presentación")
+    st.subheader('Rentabilidad por presentación')
 
     filas = []
 
@@ -3270,12 +3257,12 @@ elif opcion_menu == "⚙️ Calculadora de Costos":
             "Margen bruto": "${:,.2f}",
             "Margen %": "{:.1f}%",
         }),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
     st.markdown("---")
-    st.subheader("🎯 Precio orientativo según margen objetivo")
+    st.subheader('Precio orientativo según margen objetivo')
 
     margen_objetivo = st.slider(
         "Margen bruto objetivo",
@@ -3318,12 +3305,12 @@ elif opcion_menu == "⚙️ Calculadora de Costos":
                 "Precio actual": "${:,.2f}",
                 "Precio con margen objetivo": "${:,.2f}",
             }),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
     st.markdown("---")
-    st.subheader("🥣 Desglose de insumos")
+    st.subheader('Desglose de insumos')
     st.caption(
         "Podés corregir la cantidad de un ingrediente, cambiar su precio, "
         "agregarlo o eliminarlo de esta receta. Los cambios se guardan en la receta real "
@@ -3374,7 +3361,7 @@ elif opcion_menu == "⚙️ Calculadora de Costos":
             df_desglose.style.format({
                 "Costo en receta": "${:,.2f}",
             }),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -3447,9 +3434,9 @@ elif opcion_menu == "⚙️ Calculadora de Costos":
                 )
 
             if st.button(
-                "💾 Guardar cambios",
+                'Guardar cambios',
                 type="primary",
-                use_container_width=True,
+                width="stretch",
                 key=f"calc_guardar_ing_{receta_seleccionada}",
             ):
                 try:
@@ -3503,9 +3490,9 @@ elif opcion_menu == "⚙️ Calculadora de Costos":
                 )
 
             if st.button(
-                "➕ Agregar a la receta",
+                'Agregar a la receta',
                 type="primary",
-                use_container_width=True,
+                width="stretch",
                 key=f"calc_agregar_ing_{receta_seleccionada}",
             ):
                 try:
@@ -3538,8 +3525,8 @@ elif opcion_menu == "⚙️ Calculadora de Costos":
             )
 
         if st.button(
-            "🆕 Crear insumo y agregarlo",
-            use_container_width=True,
+            'Crear insumo y agregarlo',
+            width="stretch",
             key=f"calc_crear_ing_{receta_seleccionada}",
         ):
             nombre_nuevo = limpiar_texto(nombre_insumo_nuevo)
@@ -3582,8 +3569,8 @@ elif opcion_menu == "⚙️ Calculadora de Costos":
             )
 
             if st.button(
-                "🗑️ Eliminar de esta receta",
-                use_container_width=True,
+                'Eliminar de esta receta',
+                width="stretch",
                 key=f"calc_eliminar_btn_{receta_seleccionada}",
             ):
                 try:
